@@ -16,7 +16,7 @@ published: false
 2. EKS Hybrid Nodes / Outposts / Anywhere の比較
 3. ARM64 (Raspberry Pi) で動かす注意点
 4. K3s + Tailscale からの移行設計
-5. Kro と Crossplane、個人 GitOps での選択
+5. Kro と Crossplane、どちらを選ぶか
 6. Cilium eBPF を読み解く
 
 ## これまでの自宅構成

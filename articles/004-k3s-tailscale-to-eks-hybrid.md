@@ -198,7 +198,7 @@ terraform destroy
 
 ## 次回予告
 
-次回は **「Kro と Crossplane、個人 GitOps ではどちらを選ぶか」**。Hybrid Nodes 移行後、AWS リソース (IRSA Role / S3 Bucket / Lambda) を K8s API で管理する選択肢を比較する。
+次回は **「Kro と Crossplane、どちらを選ぶか」**。Hybrid Nodes 移行後、AWS リソース (IRSA Role / S3 Bucket / Lambda) を K8s API で管理する選択肢を比較する。
 
 ## 参考
 
