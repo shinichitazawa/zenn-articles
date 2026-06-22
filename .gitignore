@@ -3,3 +3,6 @@ node_modules/
 .vscode/
 *.swp
 *.swo
+
+# Claude Code internal guideline (not for public)
+CLAUDE.md
