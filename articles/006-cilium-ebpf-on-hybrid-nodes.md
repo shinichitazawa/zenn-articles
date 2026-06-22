@@ -31,7 +31,7 @@ Cilium を選ぶ理由:
 
 ## Cilium のアーキテクチャと eBPF 配置
 
-```
+```text
 ┌────────────────────────────────────────────────────────┐
 │ User space (per node)                                  │
 │ ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
@@ -104,7 +104,7 @@ bpftool map dump name cilium_tunnel_map
 
 ### ClusterIP 通信 (Pod → Service)
 
-```
+```text
 Pod プロセス
    │ connect(10.96.0.10:80)  ← Service ClusterIP
    ▼
@@ -127,7 +127,7 @@ TCP stack が SYN を送信 (宛先は既に backend IP)
 
 Service backend 選択は **Maglev** (Google 2016):
 
-```
+```text
 N backends を M スロット (M ≫ N、Cilium デフォルト 16381) の table にマップ
    ・各 backend は preference list を持つ
    ・round-robin で空きスロットに自分の preference を埋める
@@ -144,7 +144,7 @@ Lookup: `backend = maglev_table[jhash(5-tuple) % M]`
 
 ### 同一ノード
 
-```
+```text
 Pod A (veth eth0 ↔ lxcA)
    ↓ packet
 [TC egress on lxcA]
@@ -162,7 +162,7 @@ Pod A (veth eth0 ↔ lxcA)
 
 **ここが Hybrid Nodes の真髄**。AWS VPC route table に on-prem pod CIDR を伝搬する手段は **無い** (VPC CNI なら自然に解決するが Hybrid では使えない)。
 
-```
+```text
 Pod A (オンプレ) → TC egress lxcA → policy + ipcache
    │ cilium_tunnel_map[C_pod_cidr] → node_C_internal_ip (AWS 側)
    │ VXLAN encap → UDP:8472 宛 AWS_node_C_IP
@@ -205,7 +205,7 @@ affinity:
 
 Hybrid Nodes は VPN 経由でも公衆網経由でも、Pod-to-Pod 通信を **アプリケーションレイヤで暗号化** すべき。Cilium はこれを kernel space で透過的に実施:
 
-```
+```text
 TC egress lxcA → policy → ipcache → BPF が cilium_wg0 に skb_redirect
    ↓
 WireGuard カーネルモジュールが ChaCha20-Poly1305 で暗号化、UDP:51871 にカプセル化
@@ -259,7 +259,7 @@ spec:
 
 ## Hubble 可視化
 
-```
+```text
 TC hook → eBPF が cilium_events に flow event を perf_event_output
    ↓
 cilium-agent が perf ring buffer を mmap で read

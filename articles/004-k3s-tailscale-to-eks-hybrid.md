@@ -14,7 +14,7 @@ published: false
 
 ### Before (K3s + Tailscale)
 
-```
+```text
 [自宅 LAN]
   Pi#1 (K3s server + worker)
   Pi#2 (K3s worker)
@@ -33,7 +33,7 @@ published: false
 
 ### After (EKS Hybrid Nodes)
 
-```
+```text
 [AWS Region ap-northeast-1]
   EKS Control Plane (managed)
     │

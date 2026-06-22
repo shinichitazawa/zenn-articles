@@ -77,7 +77,7 @@ Pi 利用シナリオでは Hybrid Nodes 一択になる。
 
 GitHub の private リポで以下を準備した:
 
-```
+```text
 ~/work/k8s-deploy/
 ├── docs/eks-hybrid-nodes/        # アーキテクチャ・前提・手順・コスト試算
 ├── docs/learning-notes/          # Cilium eBPF, ARM64, k8s 管理ツール比較
