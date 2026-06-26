@@ -253,6 +253,64 @@ D: {response_d}
 
 scores を Langfuse の `scores` API で trace に書き戻し、Grafana dashboard で `ab_arm` ごとの平均スコアを表示します。
 
+## AWS Bedrock との比較も同時に行う
+
+OSS 4 モデル間の比較だけでは「OSS で本当に商用 API を代替できるか」が判定できないため、AWS Bedrock 経由の **Amazon Nova family** も同じ LiteLLM proxy 配下に登録して比較対象にします。
+
+[Amazon Nova 公式 doc](https://docs.aws.amazon.com/nova/latest/userguide/what-is-nova.html) より、Tokyo region でクロスリージョン推論経由で使える Understanding 系 3 モデルが利用できます。
+
+| Model | Model ID | Context | Modalities | 用途 |
+|---|---|---|---|---|
+| Nova Pro | `apac.amazon.nova-pro-v1:0` | 300K | text/image/video | 高品質 chat / RAG / agentic |
+| Nova Lite | `apac.amazon.nova-lite-v1:0` | 300K | text/image/video | 低コスト multimodal |
+| Nova Micro | `apac.amazon.nova-micro-v1:0` | 128K | text only | 最低レイテンシ、超低コスト |
+
+これらは A/B router (`ab-router`) には含めず、**直接 model 名指定で呼び出して比較する位置づけ**にします。OSS の A/B 評価とは別 judge セッションを組む方が判定が散らかりません。
+
+```yaml:litellm-bedrock-nova.yaml
+- model_name: bedrock-nova-pro
+  litellm_params:
+    model: bedrock/converse/apac.amazon.nova-pro-v1:0
+    aws_region_name: ap-northeast-1
+- model_name: bedrock-nova-lite
+  litellm_params:
+    model: bedrock/converse/apac.amazon.nova-lite-v1:0
+    aws_region_name: ap-northeast-1
+- model_name: bedrock-nova-micro
+  litellm_params:
+    model: bedrock/converse/apac.amazon.nova-micro-v1:0
+    aws_region_name: ap-northeast-1
+```
+
+LiteLLM の IRSA + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま流用するため、追加の認証は不要です。
+
+### コスト比較 (Bedrock Nova vs OSS self-host)
+
+[Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) (us-east-1 基準):
+
+| Model | input ($/1M tok) | output ($/1M tok) | 月 1000 万 input + 100 万 output 想定 |
+|---|---|---|---|
+| Nova Micro | $0.035 | $0.14 | **$0.49** |
+| Nova Lite | $0.06 | $0.24 | **$0.84** |
+| Nova Pro | $0.80 | $3.20 | **$11.20** |
+| (参考) Claude Sonnet 4 | $3.00 | $15.00 | $45.00 |
+
+これと OSS self-host 月 $80 を比較すると、結論は次のようになります。
+
+- **データ主権を取らない前提**なら **Nova Micro/Lite は圧倒的に安い**。1 億 token 級まで OSS self-host のコストに並ばれません
+- **データ主権を取る**なら OSS self-host が必須。コスト固定 $80/月で量を気にせず使える
+- **multimodal が必要** → Nova Lite/Pro が現実的、OSS は別途 vision モデルを追加検討
+- **日本語精度最優先** → Sarashina/PLaMo (OSS) vs Nova Pro の judge 直接比較で決める
+
+### 横断比較フロー
+
+1. OSS 4 候補の A/B → `ab-router` (round-robin) で 1-2 model に絞り込み
+2. Bedrock Nova 3 候補を別途同一プロンプトで呼び出し
+3. judge model (Claude Sonnet 4 など) で OSS winner と Bedrock 各候補を 5-way 比較
+4. 用途ごとに最適候補を決定 (Coding = OSS winner、RAG = Nova Pro 等の用途別マッピング)
+
+これにより「OSS が代替できる領域」と「Bedrock を残すべき領域」を明確に分離できます。
+
 ## 重要な落とし穴
 
 検証中に踏んだ / 想定される問題を列挙します。
