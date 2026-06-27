@@ -167,7 +167,7 @@ Pod A (オンプレ) → TC egress lxcA → policy + ipcache
    │ cilium_tunnel_map[C_pod_cidr] → node_C_internal_ip (AWS 側)
    │ VXLAN encap → UDP:8472 宛 AWS_node_C_IP
    ▼
-host eth0 → 自宅ルータ → Site-to-Site VPN → AWS VGW → VPC
+host eth0 → ローカルルータ → Site-to-Site VPN → AWS VGW → VPC
    ▼
 AWS 側 ENI (node C) → kernel
    ▼
@@ -348,11 +348,11 @@ EKS Hybrid Nodes で Cilium を使う必然性は、VPC CNI が物理 ENI 依存
 - Identity-based policy で IP に依存しない動的セキュリティ
 - Hubble で全 flow を可視化
 
-これらを **マネージド control plane (AWS) + 自前 worker (Pi)** という構成で動かせるのが EKS Hybrid Nodes の魅力。Pi の低消費電力 ARM64 と Cilium の eBPF datapath の組み合わせは、個人検証に最適。
+これらを **マネージド control plane (AWS) + 自前 worker (Pi)** という構成で動かせるのが EKS Hybrid Nodes の魅力。Pi の低消費電力 ARM64 と Cilium の eBPF datapath の組み合わせは、小規模検証に最適。
 
 ## シリーズ完
 
-6 本のシリーズで「自宅 Pi を EKS Hybrid Nodes で AWS の一部にする」検証準備を網羅した。実 apply 結果が出たら、別シリーズとして書く予定。
+6 本のシリーズで「ローカル Pi を EKS Hybrid Nodes で AWS の一部にする」検証準備を網羅した。実 apply 結果が出たら、別シリーズとして書く予定。
 
 ## 参考
 

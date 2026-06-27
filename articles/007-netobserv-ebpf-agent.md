@@ -330,7 +330,7 @@ CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct 
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
 4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動かません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 
-個人 Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢として記憶しておく。
+Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢として記憶しておく。
 
 ## まとめ
 
