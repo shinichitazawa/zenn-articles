@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-Kubernetes マニフェストを宣言的に管理していると、「複合リソースの取り扱い」と「クラウドリソースの宣言的管理」で詰まる場面がある。これらを解決する OSS として **Kro (Kube Resource Orchestrator)** と **Crossplane** がある。両者は重なる領域があるが思想が異なる。本記事では両者の仕組みと選び方を整理する。
+Kubernetes マニフェストを宣言的に管理していると、「複合リソースの取り扱い」と「クラウドリソースの宣言的管理」で詰まる場面があります。これらを解決する OSS として **Kro (Kube Resource Orchestrator)** と **Crossplane** があります。両者は重なる領域があるが思想が異なります。本記事では両者の仕組みと選び方を整理します。
 
 想定読者は、Kustomize / Helm での複合リソース管理に限界を感じ、上位の抽象化レイヤを検討している中級者。
 
@@ -18,7 +18,7 @@ Kubernetes マニフェストを宣言的に管理していると、「複合リ
 
 ## 複合リソース・クラウドリソース管理で直面する問題
 
-Kustomize + ArgoCD で多数のアプリを deploy していると、以下の問題に直面する。
+Kustomize + ArgoCD で多数のアプリを deploy していると、以下の問題に直面します。
 
 1. **複合リソースの煩雑さ**: Web app 1 個を deploy するのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
 2. **values の重複**: Helm chart の overlay で同じ値を environment 毎に書き直す
@@ -73,7 +73,7 @@ spec:
   replicas: 1
 ```
 
-Kro controller が裏で Deployment + Service + ConfigMap を生成する。
+Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 
 ### 特徴
 
@@ -140,7 +140,7 @@ spec:
 
 Kro を選ぶ理由になりやすい点:
 
-1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費する。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
+1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費します。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane の multi-cloud は overkill
 3. **学習コスト**: Composition の設計は時間がかかる。RGD は K8s YAML の延長で書ける
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
