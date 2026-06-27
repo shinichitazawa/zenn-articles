@@ -311,6 +311,139 @@ LiteLLM の IRSA + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま
 
 これにより「OSS が代替できる領域」と「Bedrock を残すべき領域」を明確に分離できます。
 
+## 5-way 自動判定を Temporal workflow で回す
+
+OSS 4 候補と AWS Nova Pro の 5-way 比較を手動 trigger (将来は webhook) で走らせる Temporal workflow を立てます。judge ロジックを worker pod に閉じ込め、起動だけ webhook 経由で行う構成にします。
+
+### 全体フロー
+
+```mermaid
+sequenceDiagram
+  participant U as User/CLI
+  participant ES as Argo Events EventSource
+  participant SN as Argo Events Sensor
+  participant TP as temporal-rest-proxy
+  participant TF as Temporal Frontend
+  participant W as judge worker Pod
+  participant LF as Langfuse
+  participant LL as LiteLLM Claude judge
+
+  U->>ES: POST /judge {"days":7}
+  ES->>SN: event 配信
+  SN->>TP: POST /start {workflow_type, args}
+  TP->>TF: gRPC StartWorkflowExecution
+  TF->>W: task assign
+  W->>LF: GET traces?tags=llm-ab-test-v1
+  W->>W: group_by_prompt (5-arm complete のみ)
+  loop 各 prompt (5 並列)
+    W->>LL: POST /v1/chat/completions
+    LL-->>W: JSON {scores, winner}
+  end
+  W->>LF: POST /api/public/scores
+```
+
+### Workflow 構成
+
+| 軸 | 選択 |
+|---|---|
+| 評価対象 5 model | OSS 4 + Bedrock Nova Pro (AWS base line) |
+| Judge model | bedrock-claude-3-5-sonnet (Sonnet 4 と別世代で循環参照を弱める) |
+| Trigger | Argo Events webhook → temporal-rest-proxy → workflow (cron なし、手動のみ) |
+| 並列度 | judge invoke 5 並列 (semaphore で rate limit 回避) |
+
+### Activity 4 つ
+
+```python:llm_ab_judge_workflow.py
+@activity.defn
+async def fetch_traces(params):
+    """Langfuse /api/public/traces?tags=llm-ab-test-v1 から過去 N 日分を page 取得"""
+    ...
+
+@activity.defn
+async def group_by_prompt(params):
+    """prompt の sha256 hash で集約、5 arm 全揃いのみ採用"""
+    ...
+
+@activity.defn
+async def invoke_judge(params):
+    """5-way prompt に埋め込んで LiteLLM claude-3-5-sonnet endpoint に POST"""
+    ...
+
+@activity.defn
+async def write_back_scores(params):
+    """各 trace に judge score を Langfuse /api/public/scores で書き戻し"""
+    ...
+```
+
+Workflow は 4 activity を順次実行し、各 activity に Temporal retry policy を効かせます。judge 呼び出しは semaphore で 5 並列に抑え、judge model 側の rate limit を超えないようにします。
+
+### Trigger 方法 (3 通り)
+
+```bash:trigger-examples.sh
+# 方式 1: Argo Events webhook (通常運用)
+kubectl port-forward -n argo-events svc/llm-ab-judge-eventsource-svc 14000:14000 &
+curl -X POST http://localhost:14000/judge \
+  -H 'Content-Type: application/json' \
+  -d '{"days": 7, "max_groups": 50}'
+
+# 方式 2: Temporal CLI 直接 (デバッグ)
+kubectl port-forward -n temporal svc/temporal-frontend 7233:7233 &
+temporal workflow start --address localhost:7233 \
+  --type LlmAbJudgeWorkflow --task-queue llm-ab-judge-tq \
+  --input '{"days":1,"max_groups":5}'
+
+# 方式 3: cluster 内 debug pod
+kubectl run -it --rm temporal-cli --image=temporalio/cli:latest --restart=Never -- \
+  workflow start \
+    --address temporal-frontend.temporal.svc.cluster.local:7233 \
+    --type LlmAbJudgeWorkflow --task-queue llm-ab-judge-tq \
+    --input '{"days":7,"max_groups":50}'
+```
+
+### なぜ Argo Events 経由なのか
+
+外部 webhook が不要なら Temporal CLI 直接で済みますが、以下の理由で Argo Events 経由を採用します。
+
+- 既存パターン (PR-feedback / Tailscale rotation 等) と構造を統一できる
+- 将来の webhook 拡張 (Slack slash command / GitHub Actions / 外部 SaaS) が EventSource 追加だけで済む
+- Sensor の filter / retry / payload 整形 / event 履歴が無料で手に入る
+- 観測性: いつ誰が trigger したかが Argo Events で一元的に追える
+
+排他ではなく、デバッグ時は Temporal CLI 直接も併用可能です。
+
+### IAM Role (IRSA)
+
+Worker pod の権限は **Secrets Manager の GetSecretValue 2 つだけ**にします。
+
+```json:llm-ab-judge-worker-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-northeast-1:*:secret:*/langfuse-credentials-*",
+        "arn:aws:secretsmanager:ap-northeast-1:*:secret:*/litellm-credentials-*"
+      ]
+    }
+  ]
+}
+```
+
+Bedrock 呼び出しは **LiteLLM proxy 経由**で行うため、本 Role に Bedrock 権限は持たせません。LiteLLM 側の IRSA で Bedrock InvokeModel を持つので、責務が綺麗に分離します。
+
+### コスト試算
+
+| 項目 | 月額 |
+|---|---|
+| Temporal worker pod (CPU 200m / 512Mi、24/7) | $5 |
+| Judge model: Claude 3.5 Sonnet @ 平均 1 prompt = 入力 8K + 出力 1K | 週 100 prompt × 4 週 = 400 prompt → $12 |
+| Langfuse / Argo Events / temporal-rest-proxy (既存) | $0 |
+| **合計追加** | **約 $17/月** |
+
+A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動判定までフルセットが揃います。
+
 ## 重要な落とし穴
 
 検証中に踏んだ / 想定される問題を列挙します。
