@@ -107,7 +107,7 @@ AWS が提供する「オンプレで動く EKS」の選択肢が 3 つに増え
 Pi 利用シナリオでは:
 
 - Outposts は物理的・経済的に不可能 (42U ラックを家に置けない)
-- EKS Anywhere は控えめに見ても overkill (個人で Enterprise ライセンス)
+- EKS Anywhere は控えめに見ても overkill (小規模で Enterprise ライセンス)
 - K3s + Tailscale はもう経験済み
 - **EKS Hybrid Nodes は完全にスイートスポット**
 

@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-自宅の Raspberry Pi クラスタで K3s + Tailscale を使ってきたが、AWS が 2024-11 re:Invent で GA させた **EKS Hybrid Nodes** に乗り換える検証を始めた。本記事はその背景と全体計画を残すシリーズの第 1 回。
+ローカルの Raspberry Pi クラスタで K3s + Tailscale を使ってきたが、AWS が 2024-11 re:Invent で GA させた **EKS Hybrid Nodes** に乗り換える検証を始めた。本記事はその背景と全体計画を残すシリーズの第 1 回。
 
 シリーズ予定:
 
