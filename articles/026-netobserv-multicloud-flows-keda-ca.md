@@ -178,6 +178,34 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 ![Prometheus の targets。両ノードの agent が UP](/images/026-netobserv-prom-targets.png)
 
+### Pod 名で見る — Kubernetes enrichment と比較ダッシュボード
+
+ここまでの flow は IP の世界でした（落とし穴 5 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
+
+```json
+{"name": "enrich", "transform": {"type": "network", "network": {
+  "rules": [
+    {"type": "add_kubernetes", "kubernetes": {"ipField": "SrcAddr", "output": "SrcK8S"}},
+    {"type": "add_kubernetes", "kubernetes": {"ipField": "DstAddr", "output": "DstK8S"}}
+  ]
+}}}
+```
+
+これで Pod 名ラベル付きのメトリクス（`netobserv_pod_flow_bytes_total` など）が出せるようになり、Grafana で「NetObserv の eBPF flow は既存のメトリクスと何が違うのか」を 1 画面で比較できます。
+
+![上段: eBPF flow の Pod ➜ Pod テーブルとペア別レート(通信相手が分かる)。下段: cAdvisor の Pod 単位合計と node-exporter の NIC 合計(相手は分からない)、および観測レイヤ比較表](/images/026-netobserv-grafana-compare.png)
+
+同じ時間帯の同じ通信を見ても、レイヤごとに見える範囲がまったく違います。
+
+| ソース | 分かること | 分からないこと |
+| --- | --- | --- |
+| NetObserv (eBPF flow) | **Pod ➜ Pod の通信相手**・向き・バイト/パケット | アプリ層の内容 |
+| cAdvisor (`container_network_*`) | Pod 単位の送受信合計 | 通信相手 |
+| node-exporter (`node_network_*`) | ノード NIC 合計 | Pod も相手も |
+| metrics-server (`kubectl top`) | CPU/メモリ使用量 | ネットワークは一切対象外 |
+
+「eBPF 固有」の価値はこの表の 1 行目に尽きます。cAdvisor 以下はどれもインターフェースのカウンタを読んでいるだけなので合計しか出せず、「argocd-repo-server が application-controller と話している」という**ペアの情報**はカーネル内で flow(5-tuple)を捕捉する eBPF でしか得られません。なお NetObserv の専用 UI(flow テーブルやトポロジ画面)は OpenShift Console のプラグインとして提供されるもので、素の k8s/k3s には載らないため、vanilla 環境ではこのように Prometheus/Grafana(または Loki + Grafana)で可視化するのが現実解です。
+
 ## GCP だけ Cluster Autoscaler が使えなかった
 
 AWS と Azure が同じ形で成立した一方、GCP では Cluster Autoscaler の GCE provider が**混在 providerID クラスタで scale-up を実行できない**ことが分かりました。GCE provider は判断材料の棚卸しでクラスタの全ノードの providerID を `gce://` として解釈しようとし、他形式に出会うと「無視」ではなくエラーを返すためです。バージョンを変えて 3 回試しましたが、エラー箇所が移動するだけでした（筆者環境の実測）。
