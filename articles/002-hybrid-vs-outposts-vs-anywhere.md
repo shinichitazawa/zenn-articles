@@ -8,117 +8,169 @@ published: false
 
 ## はじめに
 
-AWS が提供する「オンプレで動く EKS」の選択肢が 3 つに増えた。**EKS Hybrid Nodes (2024-11 GA)**、**EKS on Outposts (2021 GA)**、**EKS Anywhere (2021 GA)**。さらに自分で組む K3s + Tailscale もある。これらの境界線が紛らわしいので整理する。
+AWS が提供する「オンプレで動く EKS」の選択肢は 3 つあります。**EKS Hybrid Nodes**（2024-11 GA）、**EKS on Outposts**、**EKS Anywhere** です。さらに、マネージドを使わず自分で組む k3s のような構成もあります。名前が似ていて境界線が紛らわしいので、本記事で整理します。
+
+想定読者は、オンプレや手元のハードウェアを Kubernetes でクラウドに繋ぎたいと考えていて、AWS の選択肢を比較したい方です。
+
+:::message
+本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
+:::
 
 ## 一行サマリ
 
-- **EKS Hybrid Nodes**: 顧客所有 HW を AWS の EKS クラスタに参加させる
-- **EKS on Outposts**: AWS 所有ラックを顧客 DC に置く
-- **EKS Anywhere**: AWS UX を顧客 DC で完結再現
-- **K3s + Tailscale**: 全部自前
+- **EKS Hybrid Nodes**: 顧客所有の HW を、AWS の EKS クラスタに worker として参加させる
+- **EKS on Outposts**: AWS 所有のラックを顧客環境に設置する
+- **EKS Anywhere**: EKS のディストリビューションを顧客環境で self-host する
+- **k3s 等の自前構成**: control plane も含めて全部自分で運用する
 
-決定的な軸は **「VPC を延伸するか」** と **「AWS HW を置くか / 自分の HW を使うか」**。
+決定的な軸は 2 つです。「**ハードウェアは誰の所有か**」と「**control plane はどこで動くか**」。
+
+```mermaid
+flowchart TB
+  Q1{"ハードウェアは<br/>誰の所有?"}
+  Q1 -->|"AWS 所有のラックを設置"| OP["EKS on Outposts"]
+  Q1 -->|"自分の HW"| Q2{"control plane は?"}
+  Q2 -->|"AWS Region の<br/>マネージドを使う"| HN["EKS Hybrid Nodes"]
+  Q2 -->|"自分の環境で<br/>self-host"| Q3{"AWS の<br/>ディストリビューション?"}
+  Q3 -->|"使う"| EA["EKS Anywhere"]
+  Q3 -->|"使わない"| K3S["k3s 等の自前構成"]
+```
+
+## 構成図で比べる
+
+混同しやすい Hybrid Nodes と Outposts は、「何がどちら側に置かれるか」が正反対です。
+
+**EKS Hybrid Nodes** — control plane は AWS 側、worker だけが手元。VPC は延伸しません。
+
+```mermaid
+flowchart LR
+  subgraph R1["AWS Region"]
+    CP1["EKS control plane<br/>(AWS マネージド)"]
+  end
+  subgraph D1["顧客環境"]
+    W1["顧客所有 HW の worker<br/>(x86 / ARM64)"]
+  end
+  CP1 <-->|"S2S VPN / Direct Connect<br/>VPC は延伸しない"| W1
+```
+
+**EKS on Outposts** — AWS のハードウェアごと顧客環境に持ち込み、VPC を延伸します。
+
+```mermaid
+flowchart LR
+  subgraph R2["AWS Region"]
+    SVC["リージョンのサービス群"]
+  end
+  subgraph D2["顧客環境"]
+    subgraph OPS["Outposts ラック (AWS 所有)"]
+      N2["EC2 / EBS / ELB など<br/>ローカルで動作"]
+    end
+  end
+  SVC <-->|"Service Link<br/>VPC が延伸する"| OPS
+```
+
+**EKS Anywhere / 自前 k3s** — control plane も顧客環境。AWS Region との接続は必須ではありません。
+
+```mermaid
+flowchart LR
+  subgraph D3["顧客環境"]
+    CP3["control plane<br/>(self-host)"] --- W3["worker"]
+  end
+  D3 -.->|"連携は任意"| R3["AWS Region"]
+```
 
 ## 比較表
 
-| 観点 | EKS Hybrid Nodes | EKS on Outposts | EKS Anywhere | K3s + Tailscale |
+| 観点 | EKS Hybrid Nodes | EKS on Outposts | EKS Anywhere | 自前 k3s |
 |---|---|---|---|---|
-| 物理 HW | **顧客所有の任意 HW** | AWS 所有 42U ラック | 顧客所有 (vSphere / bare metal) | 顧客所有 |
-| Control plane | AWS Region (マネージド) | Outposts 内 or Region | 顧客 DC 内 (self-hosted) | 顧客 DC 内 (self-hosted) |
-| Network | 顧客 NW + S2S VPN/DX | AWS Service Link (専用回線) | 顧客 NW のみ | Tailscale Mesh (WireGuard) |
-| CNI | Cilium / Calico (VPC CNI 不可) | **VPC CNI 可** | Cilium / Calico / Kube-OVN | Flannel default |
-| VPC | 延伸しない | **延伸する** | 関係なし | 関係なし |
-| 物理要件 | 1U Pi (5W) で可 | 42U / 数 kW / 380V | vSphere host or bare metal | 1U Pi 可 |
-| 課金 | vCPU 時間単価 + VPN | 月額契約 (3 年コミット) | 年間ライセンス (Enterprise) | 電気代のみ |
-| 月額目安 (PoC) | ~$286 | ~$80,000+ | ~$1,200+ | ~$2 |
-| AWS サービス連携 | IRSA / VPC EP 経由 | Outposts ローカル AWS サービス | なし | なし |
-| ARM64 サポート | ✅ | △ (機種限定) | ✅ | ✅ |
-| Pi で使える | ✅ | ❌ | △ (規模過大) | ✅ |
+| 物理 HW | 顧客所有の任意 HW | AWS 所有ラック | 顧客所有 (vSphere / bare metal) | 顧客所有 |
+| Control plane | AWS Region (マネージド) | Outposts 内 or Region | 顧客環境 (self-hosted) | 顧客環境 (self-hosted) |
+| Network | 顧客 NW + S2S VPN/DX | AWS Service Link | 顧客 NW のみ | 顧客 NW（+ 任意で VPN/mesh） |
+| CNI | Cilium / Calico（VPC CNI 不可） | VPC CNI 可 | Cilium 等 | flannel 既定 |
+| VPC | 延伸しない | 延伸する | 関係なし | 関係なし |
+| 物理要件 | 小型 SBC からサーバまで | ラック設置（電源・スペース要件あり） | vSphere host or bare metal | 小型 SBC からサーバまで |
+| 課金 | control plane 時間課金 + vCPU 時間課金 + 回線 | 構成に応じた期間契約 | サブスクリプション | HW と電気代のみ |
+| AWS サービス連携 | IRSA / VPC エンドポイント経由 | ローカルで AWS サービスが動く | 基本独立（連携は任意） | 自前実装 |
+| ARM64 | 対応 | 機種限定 | 対応 | 対応 |
+
+出典: [EKS Hybrid Nodes overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html) / [EKS on Outposts](https://docs.aws.amazon.com/eks/latest/userguide/eks-on-outposts.html) / [EKS Anywhere](https://anywhere.eks.amazonaws.com/)（いずれも 2026-08 時点で取得）。課金の詳細は各 pricing ページを参照してください（[EKS pricing](https://aws.amazon.com/eks/pricing/) では control plane $0.10/クラスタ/時、Hybrid Nodes は vCPU 時間課金。2026-08 時点）。
 
 ## 詳細
 
 ### EKS Hybrid Nodes
 
-**設計思想**: 「顧客の自前 HW を EKS クラスタの一員として参加させる」
+設計思想は「顧客の自前 HW を、AWS マネージドな EKS クラスタの一員として参加させる」です。
 
-ポイント:
+- VPC は延伸しません。Pod CIDR は remote network config で別管理します
+- ノード認証は SSM Hybrid Activation または IAM Roles Anywhere です
+- CNI は VPC CNI が使えず、AWS がサポートするのは Cilium です（[hybrid-nodes-cni](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-cni.html)）
+- GovCloud / China リージョンでは利用できません（[overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html)）
 
-- VPC は **延伸しない**。Pod CIDR は別管理 (`RemotePodNetwork`)
-- ノード認証は SSM Hybrid Activation or IAM Roles Anywhere
-- CNI は VPC CNI 不可、Cilium / Calico を顧客責任で構築
-- リージョン制限: GovCloud / China 以外で利用可
-
-**向く用途**: 小〜中規模、オンプレと AWS の混在ワークロード、エッジ、ARM 検証
+向く用途: 小〜中規模の自前 HW を AWS マネージドな control plane に繋ぎたい場合、オンプレと AWS の混在ワークロード、エッジ。
 
 ### EKS on Outposts
 
-**設計思想**: 「AWS のラックを顧客 DC に置く」
+設計思想は「AWS のラックを顧客環境に置く」です。
 
-ポイント:
+- VPC が顧客環境まで延伸します（Service Link）
+- Outposts 内で EC2 / EBS / ELB などが動きます
+- VPC CNI も使えます（Outposts は AWS の物理に属するため）
 
-- VPC が DC 内まで延伸 (Service Link)
-- Outposts 内で EC2 / EBS / S3 on Outposts / RDS on Outposts / ELB が動く
-- VPC CNI も使える (Outposts は AWS 物理に属する)
+向く用途: データセンター統合、データ所在地の規制、低レイテンシ要件。
 
-**向く用途**: 大企業データセンタ統合、規制 (データ residency)、低レイテンシ要件 (10ms 以下)
-
-**小規模では使えない理由**: 物理サイズ (42U / 数 kW)、契約形態 (3 年コミット数万ドル/月)、専用 AWS 設置作業
+小規模に向かない理由: ラックの物理要件（設置スペース・電源）と、期間契約が前提の調達形態です。個別見積もりのため、詳細は [Outposts pricing](https://aws.amazon.com/outposts/rack/pricing/) を参照してください。
 
 ### EKS Anywhere
 
-**設計思想**: 「EKS の構築物 (k8s + Curated packages) を顧客 DC で動かす」
+設計思想は「EKS のディストリビューション（k8s + curated packages）を顧客環境で動かす」です。
 
-ポイント:
+- 顧客環境の vSphere / bare metal / Snow / CloudStack 上で動きます
+- control plane も顧客環境内で self-host します
+- AWS Region との連携はオプションで、基本は独立して動きます
 
-- 顧客 DC 内の vSphere / bare metal / Snow / CloudStack
-- Control plane も顧客 DC 内 (self-hosted)
-- AWS Region との連携は **オプション** (基本独立)
+向く用途: AWS のツールチェーンをオンプレで再現したい場合、完全閉域が要件の場合。
 
-**向く用途**: AWS 経験者がオンプレで AWS UX を再現したい場合、コンプライアンス要件で完全閉域
+### 自前 k3s
 
-**問題**: Enterprise ライセンス、サポート契約必須、CNCF 純正 k8s と比べて学習価値の差が小さい
+設計思想は「軽量 k8s で、control plane も含めて自分で持つ」です。
 
-### K3s + Tailscale
+- k3s は control plane 込みの 1 バイナリで起動します
+- ノード間接続やクラウド連携は自前で設計します（Tailscale 等の mesh VPN を使う構成もこれに含まれます）
+- AWS マネージドサービスの恩恵はなく、バックアップ等の運用も自前です
 
-**設計思想**: 「軽量 k8s + Mesh VPN でローカルクラスタ」
-
-ポイント:
-
-- K3s が control plane も含めて 1 バイナリ
-- Tailscale で各ノード間に WireGuard mesh
-- AWS との連携は完全に顧客実装
-
-**向く用途**: 学習用途、エッジ、学習
-
-**問題**: AWS マネージドサービスの恩恵を受けない、運用 (etcd backup 等) が完全自前
+向く用途: 検証・学習、エッジ、構成を完全に自分で制御したい場合。
 
 ## どれを選ぶか
 
-| ユーザペルソナ | 推奨 |
+| ケース | 候補 |
 |---|---|
-| 小規模/家庭ラボ、AWS 経験積みたい | **EKS Hybrid Nodes** |
-| 小規模/家庭ラボ、AWS は使わない | K3s + Tailscale or K3s 単独 |
-| 中小企業のオフィス DC | EKS Hybrid Nodes or EKS Anywhere |
-| 大企業 DC、規制 / 低レイテンシ要件 | EKS on Outposts or EKS Anywhere |
-| 完全クラウド | EKS (AWS only) |
+| 小規模の自前 HW で、control plane は AWS に任せたい | EKS Hybrid Nodes |
+| 小規模の自前 HW で、AWS は使わない | 自前 k3s |
+| 中規模のオフィス・拠点 | EKS Hybrid Nodes or EKS Anywhere |
+| データセンター、規制・低レイテンシ要件 | EKS on Outposts or EKS Anywhere |
+| オンプレ要件がない | EKS（クラウドのみ） |
 
-## 自分のケース
+## 筆者の検証での位置づけ
 
-Pi 利用シナリオでは:
+筆者は小型 ARM64 ハードウェア（Raspberry Pi）と k3s + Tailscale の構成を検証してきました。その観点で各選択肢を見ると、次のようになります。
 
-- Outposts は物理的・経済的に不可能 (42U ラックを家に置けない)
-- EKS Anywhere は控えめに見ても overkill (小規模で Enterprise ライセンス)
-- K3s + Tailscale はもう経験済み
-- **EKS Hybrid Nodes は完全にスイートスポット**
+- Outposts はラックの物理要件・調達形態から、小規模検証の対象外です
+- EKS Anywhere は規模に対して過大です
+- k3s + Tailscale は検証済みです
+- EKS Hybrid Nodes は「自前 HW + マネージド control plane」という組み合わせが検証対象として残ります
 
-特に AWS の最新サービス検証として価値が高い。Cilium eBPF をフル機能で動かす場として、マネージド control plane の安定性と組み合わせられる。
+なお本記事は各方式の公式ドキュメントに基づく比較で、EKS Hybrid Nodes の実機検証は行っていません。
 
-## 次回予告
+## まとめ
 
-次回は **「ARM64 (Raspberry Pi) で EKS Hybrid Nodes を動かすときの注意点」**。multi-arch image、kernel BPF JIT、OS 選択 (Raspberry Pi OS vs Ubuntu 24.04 LTS)、各 OSS の ARM64 サポート状況を扱う。
+- 判断軸は「HW は誰の所有か」「control plane はどこか」の 2 つです
+- Hybrid Nodes は顧客 HW + AWS マネージド control plane、VPC は延伸しません
+- Outposts は AWS HW を顧客環境に置き、VPC が延伸します
+- Anywhere と自前 k3s は control plane ごと顧客環境で、前者は AWS ディストリビューション、後者は完全自前です
 
 ## 参考
 
-- [hybrid-nodes-overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html)
-- [EKS Anywhere](https://anywhere.eks.amazonaws.com/)
+- [EKS Hybrid Nodes overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html)
+- [Configure CNI for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-cni.html)
 - [EKS on Outposts](https://docs.aws.amazon.com/eks/latest/userguide/eks-on-outposts.html)
+- [EKS Anywhere](https://anywhere.eks.amazonaws.com/)
+- [EKS pricing](https://aws.amazon.com/eks/pricing/) / [Outposts rack pricing](https://aws.amazon.com/outposts/rack/pricing/)
