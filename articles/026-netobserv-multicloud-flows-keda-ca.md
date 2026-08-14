@@ -198,6 +198,51 @@ AWS / Azure の provider は自形式でない providerID を単に読み飛ば�
 
 代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。落とし穴 3 と同根で、これが 2 つ目のクラウドでの再現です。
 
+### GCE provider をフォークして直す
+
+エラー箇所が特定できているので、provider 側を 1 箇所直せば成立するはずです。`NodeGroupForNode` は CloudProvider インターフェースの契約上「自分の管理していないノードには nil を返す」ことになっており、AWS / Azure の実装はそうしています。GCE 実装だけが providerID の parse エラーをそのまま返すため、呼び出し側のループ全体（node-info 構築や resource-quota 集計）が中断されていました。修正は「parse できない providerID は unmanaged としてスキップ」するだけです。
+
+```go
+func (gce *GceCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
+	ref, err := GceRefFromProviderId(node.Spec.ProviderID)
+	if err != nil {
+		// 混在 providerID クラスタでは他プロバイダのノードが混ざる。
+		// 契約上はエラーではなく nil を返してスキップするのが正しい。
+		klog.V(4).Infof("Node %v has non-GCE providerID %q, treating as unmanaged", node.Name, node.Spec.ProviderID)
+		return nil, nil
+	}
+	mig, err := gce.gceManager.GetMigForInstance(ref)
+	return mig, err
+}
+```
+
+`cluster-autoscaler-1.35.0` タグにこのパッチを当てて arm64 イメージをビルドし、実クラスタの CA-gcp を差し替えたところ、旧版が 1 ループ以内に落ちていた `could not create quotas tracker` の fatal が消え、メインループが安定して回るようになりました。ログには意図どおりのスキップが出ます。
+
+```text
+gce_cloud_provider.go:122] Node raspberrypi-0 has non-GCE providerID
+  "k3s://raspberrypi-0", treating as unmanaged
+gce_cloud_provider.go:122] Node azure-cil-azure-cil-vmss000004 has non-GCE
+  providerID "azure:///subscriptions/...", treating as unmanaged
+```
+
+## OCI とさくらのクラウドはどうか
+
+「全クラウド」の残り 2 つも同じ物差しで確認しました。
+
+**OCI（Oracle Cloud）**は、この検証の要である keyless の道が API の仕様で塞がっています。OCI の API は毎リクエストを RSA 秘密鍵で署名する方式で、外部 OIDC の token を持ち込む federation がこの用途では使えません。そのため API キーを Secret として与え、python SDK（`update_instance_pool`）で instance pool を resize する CronJob を組みました。自動発火（16:32）で resize リクエストは通り、pool は SCALING に遷移しましたが、work-request が **`LaunchInstancesInPool FAILED`（70% 地点）** で 2 回失敗し、インスタンスは 1 台も起動しませんでした。Always Free 枠の `A1.Flex` は東京リージョンで慢性的に在庫が薄く、いわゆる "Out of host capacity" です。**自動化の配線は成立、キャパシティで不成立**という結果でした（撤収側の CronJob は 17:35 に発火し、pool は size 0 で確定しています）。
+
+**さくらのクラウド**は、Cluster Autoscaler の upstream に provider 実装が存在しません（`cloudprovider/` ディレクトリに該当なし）。KEDA cron で Pod を 0→1 にする側は動きますが、ノードを供給する側の自動化は自作するしかなく、今回のスコープでは対象外としました。
+
+クラウド 5 つを同じチェーンに載せようとした結果を並べると、「ノードの自動供給」の成立条件はクラウドごとにばらばらだということがよく分かります。
+
+| クラウド | ノード供給 | 結果 |
+| --- | --- | --- |
+| Azure | Cluster Autoscaler（VMSS） | 全チェーン成立・flow 観測 |
+| AWS | Cluster Autoscaler（ASG） | 全チェーン成立・flow 観測 |
+| GCP | CA は要フォーク修正 / 代替 CronJob resize | join まで自動で成立 |
+| OCI | CronJob resize（API キー） | 配線成立・A1 在庫で起動せず |
+| さくら | provider なし | 対象外 |
+
 ## 踏んだ落とし穴
 
 ### 1. 包括 toleration の Pod が「死にかけノード」に吸着する
@@ -228,7 +273,8 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 
 - NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure と AWS の両方についてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
-- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、keyless の CronJob resize で代替しました。VM の join までは自動で成立しましたが、e2-micro の資源不足で通信観測には至っていません。
+- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、keyless の CronJob resize で代替しました。VM の join までは自動で成立しましたが、e2-micro の資源不足で通信観測には至っていません。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチしてビルドした CA では、この fatal が解消することを実機で確認しました。
+- OCI は keyless が API 仕様（RSA 署名）で使えず API キーの CronJob resize で代替、配線は成立したものの A1.Flex の在庫切れで起動せず。さくらのクラウドは upstream に CA provider が存在せず対象外でした。ノード自動供給の成立条件はクラウドごとに大きく異なります。
 - 実測で 6 つの落とし穴を踏みました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「1 GiB 級 VM では k3s+Cilium が安定しない（Azure/GCP の 2 クラウドで再現）」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
