@@ -8,12 +8,12 @@ published: false
 
 ## はじめに
 
-Kubernetes マニフェストを宣言的に管理していると、「複合リソースの取り扱い」と「クラウドリソースの宣言的管理」で詰まる場面があります。これらを解決する OSS として **Kro (Kube Resource Orchestrator)** と **Crossplane** があります。両者は重なる領域があるが思想が異なります。本記事では両者の仕組みと選び方を整理します。
+Kubernetes マニフェストを宣言的に管理していると、「複合リソースの取り扱い」と「クラウドリソースの宣言的管理」で詰まる場面があります。これらを解決する OSS として Kro (Kube Resource Orchestrator) と Crossplane があります。両者は重なる領域があるが思想が異なります。本記事では両者の仕組みと選び方を整理します。
 
-想定読者は、Kustomize / Helm での複合リソース管理に限界を感じ、上位の抽象化レイヤを検討している中級者。
+想定読者は、Kustomize / Helm での複合リソース管理に限界を感じ、上位の抽象化レイヤを検討している中級者です。
 
 :::message
-本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実は筆者が公式ドキュメントを引用して検証していますが、誤りや改善点があればコメント等でご指摘ください。
+本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
 :::
 
 ## 複合リソース・クラウドリソース管理で直面する問題
@@ -26,11 +26,11 @@ Kustomize + ArgoCD で多数のアプリを deploy していると、以下の�
 
 ## Kro (Kube Resource Orchestrator)
 
-**[Kro](https://kro.run/)** は 2024 年後半に公開された比較的新しい OSS。最新 v0.9.2 (2026-05 時点)。
+[Kro](https://kro.run/) は 2024 年後半に公開された比較的新しい OSS です。最新 v0.9.3 (2026-08 時点)。リポジトリは [kubernetes-sigs/kro](https://github.com/kubernetes-sigs/kro) へ移管され、Kubernetes SIG 配下のプロジェクトになっています。
 
 ### 仕組み
 
-**`ResourceGraphDefinition` (RGD)** という CRD で「高レベル API」を定義し、内部で K8s リソース (or ACK Controller 経由で AWS リソース) を生成する:
+`ResourceGraphDefinition` (RGD) という CRD で「高レベル API」を定義し、内部で K8s リソース (or ACK Controller 経由で AWS リソース) を生成する:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -85,33 +85,40 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 ### Install
 
 ```bash
+# 出典: https://kro.run/docs/getting-started/Installation
 helm install kro oci://registry.k8s.io/kro/charts/kro \
   --namespace kro-system \
   --create-namespace \
-  --version=0.9.2
+  --version=0.9.3
 ```
 
 ## Crossplane
 
-**[Crossplane](https://docs.crossplane.io/)** は CNCF Sandbox → Incubating の OSS、2018 年から発展、エコシステム成熟。
+[Crossplane](https://docs.crossplane.io/) は 2018 年から発展してきた OSS で、エコシステムも成熟しています。CNCF では [2025-11-06 に Graduated](https://www.cncf.io/announcements/2025/11/06/cloud-native-computing-foundation-announces-graduation-of-crossplane/) となりました（2026-08 時点の最新は v2.3）。
 
 ### 仕組み
 
-- **Provider** が各クラウド (AWS / GCP / Azure / GitHub / etc.) の API を CRD として K8s に橋渡し
-- **Composition** で「複数 Provider リソースを束ねた抽象」を定義
-- **CompositeResourceClaim (XRC)** でユーザがそれを apply
+- **Provider** が各クラウド (AWS / GCP / Azure / GitHub / etc.) の API を CRD として K8s に橋渡しします
+- **Composition** で「複数 Provider リソースを束ねた抽象」を定義します
+- **Composite Resource (XR)** をユーザが apply します
+
+:::message
+v1 では `CompositeResourceClaim` (XRC) を apply する形でしたが、v2 で Claim は廃止されました。公式は「The new namespaced and cluster scoped XRs in Crossplane v2 don't support claims.」と明記しており、あわせて「Crossplane v2 makes composite resources (XRs) namespaced by default.」と、XR が既定で namespaced になっています（[What's New in v2](https://docs.crossplane.io/latest/whats-new/)、2026-08 時点で取得）。XRD の API は `apiextensions.crossplane.io/v2` で、`scope` の既定が `Namespaced` です。v1 の XRD は `LegacyCluster` scope として後方互換が保たれます。
+:::
 
 ```yaml
+# Crossplane v2: Claim ではなく namespaced な XR を直接 apply します
 apiVersion: example.org/v1alpha1
-kind: WebAppClaim
+kind: WebApp
 metadata:
   name: my-app
+  namespace: default
 spec:
   bucketName: my-app-bucket
   region: ap-northeast-1
 ```
 
-これが裏で AWS S3 Bucket + IAM Role + K8s Deployment を全部作る。
+これが裏で AWS S3 Bucket + IAM Role + K8s Deployment を全部作ります。
 
 ### 特徴
 
@@ -127,7 +134,7 @@ spec:
 | 思想 | K8s ネイティブ RGD で複合リソースをバンドル | クラウド全体を K8s API 化 |
 | 対象 | K8s リソース + (ACK 経由で) AWS リソース | AWS / GCP / Azure / その他全部 |
 | 重さ | 軽量 (100m CPU) | 重 (1GB+ RAM) |
-| API 成熟度 | alpha (v0.9.x) | Stable (v1.x) |
+| API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
 | 学習コスト | 中 (RGD 設計) | 高 (Composition + Provider) |
 | Provider エコシステム | ACK 連携 (まだ少) | 豊富 (公式 + コミュニティ) |
@@ -136,13 +143,13 @@ spec:
 
 ## 選定の指針
 
-判断基準: **軽量さ重視なら Kro、マルチクラウド/エコシステム重視なら Crossplane**。
+判断基準: 軽量さ重視なら Kro、マルチクラウド/エコシステム重視なら Crossplane。
 
 Kro を選ぶ理由になりやすい点:
 
 1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費します。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane の multi-cloud は overkill
-3. **学習コスト**: Composition の設計は時間がかかる。RGD は K8s YAML の延長で書ける
+3. **学習コスト**: Composition の設計は時間がかかります。RGD は K8s YAML の延長で書けます
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
 
 逆に以下の場合は Crossplane が向く:
@@ -207,7 +214,7 @@ spec:
     - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 ```
 
-ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付ける。Pod が IRSA で AWS API を叩ける。
+ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付けます。Pod が IRSA で AWS API を叩けます。
 
 ## 採用判断フロー
 
@@ -229,17 +236,14 @@ Q3. 複合リソースのバンドル抽象が欲しい ?
 
 - **Kro**: 軽量、K8s ネイティブ、低リソース 〜 中小規模に最適
 - **Crossplane**: マルチクラウド、大規模、エコシステム成熟
-- **AWS 中心 + EKS Hybrid Nodes** の構成では **Kro が有力**
+- **AWS 中心 + EKS Hybrid Nodes** の構成では Kro が有力
 
-両者は競合だが共存も可能。Kro が alpha のうちは破壊的変更に注意して使う。
+両者は競合しますが、共存も可能です。Kro が alpha のうちは、破壊的変更に注意して使ってください。
 
-## 次回予告
-
-シリーズ最終回は **「EKS Hybrid Nodes で Cilium eBPF を読み解く」**。VPC CNI が使えない理由から、kube-proxy replacement のカーネルレベル動作、Pod-to-Pod パケットパスまで深く掘る。
 
 ## 参考
 
 - [Kro 公式](https://kro.run/)
-- [Kro GitHub](https://github.com/kro-run/kro)
+- [Kro GitHub](https://github.com/kubernetes-sigs/kro)
 - [Crossplane docs](https://docs.crossplane.io/)
 - [ACK Controllers](https://aws-controllers-k8s.github.io/community/)

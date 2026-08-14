@@ -23,7 +23,7 @@ AWS が提供する「オンプレで動く EKS」の選択肢は 3 つありま
 - **EKS Anywhere**: EKS のディストリビューションを顧客環境で self-host する
 - **k3s 等の自前構成**: control plane も含めて全部自分で運用する
 
-決定的な軸は 2 つです。「**ハードウェアは誰の所有か**」と「**control plane はどこで動くか**」。
+決定的な軸は「ハードウェアは誰の所有か」と「control plane はどこで動くか」の 2 つです。
 
 ```mermaid
 flowchart TB
@@ -40,7 +40,7 @@ flowchart TB
 
 混同しやすい Hybrid Nodes と Outposts は、「何がどちら側に置かれるか」が正反対です。
 
-**EKS Hybrid Nodes** — control plane は AWS 側、worker だけが手元。VPC は延伸しません。
+**EKS Hybrid Nodes** — control plane は AWS 側にあり、worker だけが手元にあります。VPC は延伸しません。
 
 ```mermaid
 flowchart LR
@@ -68,7 +68,7 @@ flowchart LR
   SVC <-->|"Service Link<br/>VPC が延伸する"| OPS
 ```
 
-**EKS Anywhere / 自前 k3s** — control plane も顧客環境。AWS Region との接続は必須ではありません。
+**EKS Anywhere / 自前 k3s** — control plane も顧客環境にあります。AWS Region との接続は必須ではありません。
 
 ```mermaid
 flowchart LR
@@ -105,7 +105,7 @@ flowchart LR
 - CNI は VPC CNI が使えず、AWS がサポートするのは Cilium です（[hybrid-nodes-cni](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-cni.html)）
 - GovCloud / China リージョンでは利用できません（[overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html)）
 
-向く用途: 小〜中規模の自前 HW を AWS マネージドな control plane に繋ぎたい場合、オンプレと AWS の混在ワークロード、エッジ。
+向く用途: 小〜中規模の自前 HW を AWS マネージドな control plane に繋ぎたい場合や、オンプレと AWS の混在ワークロード、エッジです。
 
 ### EKS on Outposts
 
@@ -115,7 +115,7 @@ flowchart LR
 - Outposts 内で EC2 / EBS / ELB などが動きます
 - VPC CNI も使えます（Outposts は AWS の物理に属するため）
 
-向く用途: データセンター統合、データ所在地の規制、低レイテンシ要件。
+向く用途: データセンター統合、データ所在地の規制、低レイテンシ要件です。
 
 小規模に向かない理由: ラックの物理要件（設置スペース・電源）と、期間契約が前提の調達形態です。個別見積もりのため、詳細は [Outposts pricing](https://aws.amazon.com/outposts/rack/pricing/) を参照してください。
 
@@ -127,7 +127,7 @@ flowchart LR
 - control plane も顧客環境内で self-host します
 - AWS Region との連携はオプションで、基本は独立して動きます
 
-向く用途: AWS のツールチェーンをオンプレで再現したい場合、完全閉域が要件の場合。
+向く用途: AWS のツールチェーンをオンプレで再現したい場合や、完全閉域が要件の場合です。
 
 ### 自前 k3s
 
@@ -137,7 +137,7 @@ flowchart LR
 - ノード間接続やクラウド連携は自前で設計します（Tailscale 等の mesh VPN を使う構成もこれに含まれます）
 - AWS マネージドサービスの恩恵はなく、バックアップ等の運用も自前です
 
-向く用途: 検証・学習、エッジ、構成を完全に自分で制御したい場合。
+向く用途: 検証・学習、エッジ、構成を完全に自分で制御したい場合です。
 
 ## どれを選ぶか
 

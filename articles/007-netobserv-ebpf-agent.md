@@ -1,5 +1,5 @@
 ---
-title: "NetObserv eBPF Agent を読み解く — Cilium に依らない eBPF ネットワーク観測"
+title: "NetObserv eBPF Agent — CNI 非依存のネットワーク観測"
 emoji: "🔭"
 type: "tech"
 topics: ["ebpf", "kubernetes", "networking", "observability", "netobserv"]
@@ -8,9 +8,9 @@ published: false
 
 ## はじめに
 
-EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の **NetObserv eBPF Agent** は **CNI 非依存** で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
+EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent は CNI 非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
-本記事は 2026-05 時点の調査・検証に基づく。
+本記事は 2026-05 時点の調査・検証に基づきます。
 
 [^netobserv-readme]: https://github.com/netobserv/netobserv-ebpf-agent
 
@@ -22,13 +22,13 @@ NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワ�
 |---|---|
 | [netobserv-ebpf-agent](https://github.com/netobserv/netobserv-ebpf-agent) | eBPF センサー本体 (DaemonSet) |
 | [flowlogs-pipeline](https://github.com/netobserv/flowlogs-pipeline) | フロー集約・変換・エクスポート |
-| [network-observability-operator](https://github.com/netobserv/network-observability-operator) | 全体を統括する Operator |
+| [network-observability-operator](https://github.com/netobserv/netobserv-operator) | 全体を統括する Operator |
 | network-observability-console-plugin | OpenShift Console UI |
 
-最新リリースは 2026-04-03 時点の `v1.11.3-community`[^netobserv-release][^operator-release]。`netobserv-ebpf-agent` のライセンスは README 末尾で明示されており、`./bpf` 配下の eBPF コードは **GPL v2**、それ以外は **Apache v2** という二重ライセンス[^netobserv-readme]。
+最新リリースは 2026-04-03 時点の `v1.11.3-community`[^netobserv-release][^operator-release]。`netobserv-ebpf-agent` のライセンスは README 末尾で明示されており、`./bpf` 配下の eBPF コードは GPL v2、それ以外は Apache v2 という二重ライセンス[^netobserv-readme]。
 
 [^netobserv-release]: https://github.com/netobserv/netobserv-ebpf-agent/releases/tag/v1.11.3-community
-[^operator-release]: https://github.com/netobserv/network-observability-operator/releases
+[^operator-release]: https://github.com/netobserv/netobserv-operator/releases
 
 ## アーキテクチャ全体像
 
@@ -50,12 +50,12 @@ flowchart LR
 データフロー:
 
 1. **eBPF Agent** が各ノードの ingress / egress フローをカーネルから収集
-2. (任意) **Kafka** を ingestion 層として挟む。大規模クラスタで推奨
+2. (任意) Kafka を ingestion 層として挟みます。大規模クラスタで推奨
 3. **flowlogs-pipeline (FLP)** がフローをエンリッチ、メトリクスを生成、複数バックエンドへ出力
-4. **Loki** / **Prometheus** / 他 (Kafka / OTLP / IPFIX) に保存
+4. **Loki** / Prometheus / 他 (Kafka / OTLP / IPFIX) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
 
-FLP は単体で柔軟性が高い。受け入れ可能な input は **NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力**[^flp-readme]、対応する output は **Prometheus, Loki, S3 互換オブジェクトストア, stdout**[^flp-readme]。
+FLP は単体で柔軟性が高いです。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
 
 [^flp-readme]: https://github.com/netobserv/flowlogs-pipeline
 
@@ -81,9 +81,9 @@ securityContext:
 
 BPF / PERFMON capability を認識しない古い Kubernetes ディストリビューションでは privileged mode が必要[^netobserv-readme]。
 
-サポートアーキテクチャは Operator の README で明示されており、**amd64 / arm64 / ppc64le / s390x**[^operator-arch]。ARM64 サポートがあるので Raspberry Pi (Cortex-A72/A76) でも動く想定ですが、kernel に **BTF (BPF Type Format)** が出力されている必要がある — これは後の検証セクションで重要になります。
+サポートアーキテクチャは Operator の README で明示されており、amd64 / arm64 / ppc64le / s390x[^operator-arch]。ARM64 サポートがあるので Raspberry Pi (Cortex-A72/A76) でも動く想定ですが、kernel に BTF (BPF Type Format) が出力されている必要がある — これは後の検証セクションで重要になります。
 
-[^operator-arch]: https://github.com/netobserv/network-observability-operator
+[^operator-arch]: https://github.com/netobserv/netobserv-operator
 
 ## デプロイモード
 
@@ -109,9 +109,9 @@ helm install netobserv -n netobserv --create-namespace \
   netobserv/netobserv-operator
 ```
 
-出典: [Operator README](https://github.com/netobserv/network-observability-operator)
+出典: [Operator README](https://github.com/netobserv/netobserv-operator)
 
-その後 `FlowCollector` CR を作成すれば全コンポーネントが自動デプロイされます。同 README が明示しているとおり、`FlowCollector` は cluster-wide なので **「単一の `FlowCollector` のみ許可、名前は必ず `cluster`」** という制約がある[^operator-arch]。
+その後 `FlowCollector` CR を作成すれば全コンポーネントが自動デプロイされます。同 README が明示しているとおり、`FlowCollector` は cluster-wide なので 「単一の `FlowCollector` のみ許可、名前は必ず `cluster`」 という制約がある[^operator-arch]。
 
 ### (b) standalone モード
 
@@ -123,11 +123,11 @@ export TARGET_PORT=...
 sudo -E bin/netobserv-ebpf-agent
 ```
 
-flow を gRPC で外部の collector (FLP など) に送る形。
+flow を gRPC で外部の collector (FLP など) に送る形です。
 
 ### (c) direct-flp モード
 
-最もシンプル。FLP のロジックを agent 内に embed して stdout に直接出力する[^netobserv-readme]:
+最もシンプルです。FLP のロジックを agent 内に embed して stdout に直接出力する[^netobserv-readme]:
 
 ```bash
 export FLP_CONFIG=$(cat flp-config.json)
@@ -148,7 +148,7 @@ sudo -E bin/netobserv-ebpf-agent
 }
 ```
 
-「`tcpdump` 的に試す」用途に最適。本記事の検証もこのモードで行う。
+「`tcpdump` 的に試す」用途に最適です。本記事の検証もこのモードで行います。
 
 ## EKS で動かす落とし穴
 
@@ -156,7 +156,7 @@ README の Deployment test 節に重要な記述がある[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF
 
-つまり **Amazon EKS の AMI は eBPF が無効化されて出荷される**。そのため AL2 / AL2023 ベースのノードグループでは追加設定が必要。
+つまり Amazon EKS の AMI は eBPF が無効化されて出荷されます。そのため AL2 / AL2023 ベースのノードグループでは追加設定が必要です。
 
 README が示している選択肢:
 
@@ -167,14 +167,14 @@ README のテスト結果表でも `Amazon EKS (Bottlerocket AMI) 1.22.6` で ca
 
 ## Loki 依存からの脱却 (v1.4 以降)
 
-公式ブログによれば、NetObserv v1.4 から Loki は **必須ではなくなった**[^no-loki-blog]。原文:
+公式ブログによれば、NetObserv v1.4 から Loki は 必須ではなくなった[^no-loki-blog]。原文:
 
 > we 'just' added an enable knob for Loki
 
 Loki を disable にすると:
 
 - `flowlogs-pipeline` が Loki への送信を試みなくなる
-- Console plugin は **Loki に完全依存**しているので無効化される
+- Console plugin は Loki に完全依存しているので無効化される
 - **Prometheus メトリクスの生成は継続**、Kafka / IPFIX exporter も使える[^no-loki-blog]
 
 ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go consumer (Kafka メッセージを deserialize して INSERT) を紹介している[^no-loki-blog]。
@@ -189,7 +189,7 @@ ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go co
 
 | 観点 | NetObserv eBPF Agent | Cilium Hubble |
 |---|---|---|
-| CNI 依存 | **非依存** (eBPF が動けば何でも)[^netobserv-readme] | Cilium CNI 必須 |
+| CNI 依存 | 非依存 (eBPF が動けば何でも)[^netobserv-readme] | Cilium CNI 必須 |
 | 出自 | Red Hat (OpenShift 文脈) | Isovalent (Cisco 買収)、CNCF Graduated |
 | データバックエンド | Loki / Prometheus / Kafka / OTLP / IPFIX[^flp-readme] | Hubble Relay → Prometheus / Grafana |
 | L7 プロトコル可視化 | DNS, TCP RTT, packet drops | HTTP, gRPC, Kafka, DNS, TLS handshake |
@@ -198,14 +198,14 @@ ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go co
 
 ### 選択基準
 
-- 既に **Cilium 採用 or 採用予定** → Hubble で十分。NetObserv を別途入れる理由は薄い
+- 既に Cilium 採用 or 採用予定 → Hubble で十分です。NetObserv を別途入れる理由は薄い
 - **CNI を変えず観測だけ追加したい** (例: VPC CNI on EKS の通常ノードグループ) → NetObserv が有力
 - **L7 プロトコル分析が重要** (HTTP レイテンシ、gRPC 観測) → Hubble の方が強い
 - **OpenShift 環境** → NetObserv 一択 (Red Hat 公式バックエンド)
 
 ## 実機検証
 
-ここからは手元で実際に動かしてみた記録。**2 つの環境で対比** することで、agent の動作要件 (特に **BTF 出力**) の意味を明らかにします。
+ここからは手元で実際に動かしてみた記録です。2 つの環境で対比 することで、agent の動作要件 (特に BTF 出力) の意味を明らかにします。
 
 ### 環境 A: WSL2 + docker k3s (x86_64, BTF あり)
 
@@ -250,7 +250,7 @@ apply:
 kubectl apply -k netobserv/overlays/local
 ```
 
-数分後、Pod が Running になり、ログに **フローイベントが JSON 形式で流れ始めた**:
+数分後、Pod が Running になり、ログに フローイベントが JSON 形式で流れ始めた:
 
 ```text
 map[AgentIP:172.17.0.5 Bytes:1709 DstAddr:172.23.210.65 DstMac:02:42:b2:d9:d9:73 
@@ -263,9 +263,9 @@ map[AgentIP:172.17.0.5 Bytes:1709 DstAddr:172.23.210.65 DstMac:02:42:b2:d9:d9:73
 - `DstAddr:10.42.0.x` → k3s の Pod CIDR
 - `Interfaces:[veth6947b921 cni0]` → k3s 内部 (flannel CNI 経由) のフロー
 
-Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が **完全に機能** していることを確認。
+Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が 完全に機能 していることを確認しました。
 
-ここまでで「READMEの主張通り、kernel 5.8+ + BTF + privileged で direct-flp モードが動く」を実証しましました。
+ここまでで「READMEの主張通り、kernel 5.8+ + BTF + privileged で direct-flp モードが動く」を実証しました。
 
 ### 環境 B: Raspberry Pi 5 上の k3s (aarch64, BTF なし)
 
@@ -285,9 +285,9 @@ apply:
 kubectl apply -k netobserv/overlays/rasp
 ```
 
-`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule されないと意味がないので。
+`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule されないと意味がないためです。
 
-Pod は約 60 秒で Running 状態になった (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で **fatal exit**:
+Pod は約 60 秒で Running 状態になりました (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
 
 ```text
 level=info  msg="starting NetObserv eBPF Agent [build version: main-6fc580a]"
@@ -300,7 +300,7 @@ level=fatal msg="can't instantiate NetObserv eBPF Agent"
          no BTF found for kernel version 6.6.62+rpt-rpi-2712: not supported"
 ```
 
-**`no BTF found for kernel version 6.6.62+rpt-rpi-2712`** が決定的なエラー。
+`no BTF found for kernel version 6.6.62+rpt-rpi-2712` が決定的なエラーです。
 
 裏付けとして、busybox Pod を Pi-1 上に直接スケジュールして `/sys/kernel/btf/vmlinux` を確認:
 
@@ -310,43 +310,43 @@ $ kubectl run kernel-check --rm -it --image=busybox --overrides='{"spec":{"nodeN
 ls: /sys/kernel/btf/vmlinux: No such file or directory
 ```
 
-`/sys/kernel/btf/vmlinux` **不在**。これは Raspberry Pi OS の kernel が **`CONFIG_DEBUG_INFO_BTF=y` を有効化していない** ことを意味します。
+`/sys/kernel/btf/vmlinux` 不在。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
 
-CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。これは Cilium も同じ依存を持つ。
+CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。これは Cilium も同じ依存を持ちます。
 
 ### 結論
 
-- **WSL2 + docker k3s (BTF あり)**: direct-flp モードでフロー JSON 取得 **成功**
-- **Pi k3s (Raspberry Pi OS, BTF なし)**: BPF object ロードで **CO-RE relocation エラー → fatal**
+- **WSL2 + docker k3s (BTF あり)**: direct-flp モードでフロー JSON 取得 成功
+- **Pi k3s (Raspberry Pi OS, BTF なし)**: BPF object ロードで CO-RE relocation エラー → fatal
 
-これは公式 README が言う「Pi OS は BTF default 無効、Ubuntu 24.04 LTS arm64 推奨」の **実機実証** にあたる。Pi で本格運用したい場合は OS を Ubuntu Server 24.04 LTS arm64 に切り替えるか、Raspberry Pi OS の kernel を rebuild して BTF を有効化する必要があります。
+「Raspberry Pi OS は BTF が既定で無効で、Ubuntu Server 24.04 LTS arm64 なら有効」というのは、公式ドキュメントの記述ではなく筆者が実機で確認した結果です（2026-05 時点）。Pi で本格運用したい場合は OS を Ubuntu Server 24.04 LTS arm64 に切り替えるか、Raspberry Pi OS の kernel を rebuild して BTF を有効化する必要があります。
 
 ## EKS Hybrid Nodes との関係
 
 シリーズ本筋に戻して、NetObserv が Hybrid Nodes 検証でどこに収まるかを考える:
 
-1. **Hybrid Nodes に Cilium を入れる前提** なら、Hubble で観測完結。NetObserv は不要
+1. **Hybrid Nodes に Cilium を入れる前提** なら、Hubble で観測が完結します。NetObserv は不要
 2. **AWS 側 EKS のマネージドノードグループ (VPC CNI 利用) を mix する** 場合、そちらだけ NetObserv を入れて観測する手がある
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
-4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動かません。Ubuntu 24.04 LTS arm64 への切り替えが前提
+4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動きません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 
-Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢として記憶しておく。
+Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分です。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢になります。
 
 ## まとめ
 
-- NetObserv eBPF Agent は **CNI 非依存** の eBPF フロー観測 sensor[^netobserv-readme]
+- NetObserv eBPF Agent は CNI 非依存 の eBPF フロー観測 sensor[^netobserv-readme]
 - アーキテクチャ: Agent (DaemonSet) → Kafka (任意) → FLP → Loki / Prometheus / 任意の sink
-- v1.4 以降は **Loki 必須ではない**、Kafka 経由で任意の分析基盤に流せる[^no-loki-blog]
-- EKS では **Bottlerocket なら動く**、AL 系は要 eBPF 有効化[^netobserv-readme]
+- v1.4 以降は Loki 必須ではない、Kafka 経由で任意の分析基盤に流せる[^no-loki-blog]
+- EKS では Bottlerocket なら動く、AL 系は要 eBPF 有効化[^netobserv-readme]
 - Cilium Hubble との使い分け: Cilium 採用なら Hubble、CNI 変えたくないなら NetObserv
-- **実機検証**: WSL2 上の docker k3s で flow 取得成功、Raspberry Pi OS では **BTF 不在で fatal**。Pi で使うなら Ubuntu 24.04 LTS への OS 切替が必須
+- **実機検証**: WSL2 上の docker k3s で flow 取得成功、Raspberry Pi OS では BTF 不在で fatal。Pi で使うなら Ubuntu 24.04 LTS への OS 切替が必須
 
 ## 参考リンク
 
 公式リソース:
 
 - [netobserv-ebpf-agent README](https://github.com/netobserv/netobserv-ebpf-agent)
-- [network-observability-operator README](https://github.com/netobserv/network-observability-operator)
+- [network-observability-operator README](https://github.com/netobserv/netobserv-operator)
 - [flowlogs-pipeline README](https://github.com/netobserv/flowlogs-pipeline)
 - [Loki 切り離し + ClickHouse 連携ブログ (2023-10-02)](https://netobserv.io/posts/deploying-network-observability-without-loki-an-example-with-clickhouse/)
 - [NetObserv 公式サイト](https://netobserv.io/)
