@@ -307,6 +307,9 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 01:18  Pod Running(10.0.6.192)、client からの HTTP が 200 に
 01:19  rpi0 側とさくら側、両方の agent が Pod 名付きで
        xcloud-client ➜ xcloud-nginx-sakura の flow を観測
+01:45  KEDA 窓終了で Pod が 0 に
+02:21  CA-sakura: Scale-down: removing empty node "sakura-cil-ps1na"
+       sakuracloud: deleting server → サーバはディスクごと削除、0 台に戻る
 ```
 
 enrichment を先に入れてあったので、5 クラウド目にして初めて「IP ではなく **Pod 名で**」クロスクラウド flow が見えました。
@@ -317,6 +320,8 @@ enrichment を先に入れてあったので、5 クラウド目にして初め�
 
 1. **サーバプランは ID 指定だと 400**。`/product/server` が返すプラン ID（`100004002` など）を `ServerPlan: {"ID": ...}` に入れると「パラメータの指定誤り」で拒否されます。`{"CPU": 2, "MemoryMB": 4096}` の **spec 指定なら通ります**。
 2. **ディスク修正の直後は電源 ON できない**。ホスト名とスタートアップスクリプトを書き込む `PUT /disk/:id/config` の後、ディスクは一時的に変更中状態になり、すぐ電源 ON すると `409 disk_is_not_available` になります。再度 available を待ってから電源 ON する必要があります。
+
+3. **サーバ一覧のレスポンスには電源状態が含まれない**。一覧の結果で「起動中なら停止してから削除」と分岐すると、稼働中のサーバでも停止がスキップされ、削除が `409 server_power_must_be_down` で失敗します。削除時は状態を見ずに常に強制停止を先行させ、既に停止済みの 409 は無視するのが安全です。
 
 ### 1. 包括 toleration の Pod が「死にかけノード」に吸着する
 
