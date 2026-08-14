@@ -243,6 +243,7 @@ Q3. 複合リソースのバンドル抽象が欲しい ?
 
 ## 参考
 
+- 検証時の構成ファイル: [kro](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/kro)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - [Kro 公式](https://kro.run/)
 - [Kro GitHub](https://github.com/kubernetes-sigs/kro)
 - [Crossplane docs](https://docs.crossplane.io/)

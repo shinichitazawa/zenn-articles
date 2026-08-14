@@ -206,6 +206,7 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 
 ## 参考
 
+- 検証時の構成ファイル: [cilium](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/cilium)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - [k3s: Basic Network Options（Custom CNI）](https://docs.k3s.io/networking/basic-network-options)
 - [Cilium: Installation on k3s](https://docs.cilium.io/en/stable/installation/k3s/)
 - [Cilium: System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/)

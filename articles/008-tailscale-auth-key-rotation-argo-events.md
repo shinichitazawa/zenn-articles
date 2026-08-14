@@ -665,6 +665,7 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ## 参考
 
+- 検証時の構成ファイル: [tailscale](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/tailscale) / [kro](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/kro) / [external-secrets](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/external-secrets)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - Tailscale Webhooks: https://tailscale.com/docs/features/webhooks
 - Tailscale OAuth clients: https://tailscale.com/docs/features/oauth-clients
 - Tailscale Auth keys: https://tailscale.com/docs/features/access-control/auth-keys
