@@ -239,6 +239,8 @@ gce_cloud_provider.go:122] Node azure-cil-azure-cil-vmss000004 has non-GCE
 
 kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from-0 のシミュレーション段階で Pod の nodeSelector / toleration と突き合わせて「このグループなら賄える」と判断されています。**GCE provider の 1 箇所の契約違反さえ直せば、混在 providerID クラスタでも AWS / Azure と同列に使える**ことが確認できました。
 
+この結果は upstream にも報告しました（[kubernetes/autoscaler#10140](https://github.com/kubernetes/autoscaler/issues/10140)）。ちょうど `NodeGroupForNode` まわりの契約を明確化する議論（[#9877](https://github.com/kubernetes/autoscaler/issues/9877)）が進行中で、AWS 側でも EKS Hybrid Nodes で同型の問題が報告・修正されており（[#8045](https://github.com/kubernetes/autoscaler/issues/8045)）、混在 providerID クラスタは provider 実装が想定してこなかった領域だということが分かります。
+
 ![パッチ版 CA での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
 
 ## OCI とさくらのクラウドはどうか
