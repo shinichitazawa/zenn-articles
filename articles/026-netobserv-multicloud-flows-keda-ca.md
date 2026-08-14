@@ -225,6 +225,22 @@ gce_cloud_provider.go:122] Node azure-cil-azure-cil-vmss000004 has non-GCE
   providerID "azure:///subscriptions/...", treating as unmanaged
 ```
 
+このパッチ版で GCP のチェーンを最初から通し直しました。今度は Azure / AWS と完全に同じ形で成立します（VM は `e2-medium` に変更済み）。
+
+```text
+18:04  KEDA cron が発火、xcloud-nginx-gcp が 0→1、Pod は Pending
+18:05  CA: Final scale-up plan: [{... gcp-cil-mig 0->1 (max: 2)}]
+       CA: Scale-up: setting group ... gcp-cil-mig size to 1
+18:08  GCE VM が k3s に join、約 100 秒で Ready(e2-medium)
+18:10  Pod Running(10.0.5.44)、client からの HTTP が 200 に
+18:11  rpi0 側と GCP 側、両方の agent の flow カウンタに
+       10.0.0.180 ⇄ 10.0.5.44 が出現
+```
+
+kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from-0 のシミュレーション段階で Pod の nodeSelector / toleration と突き合わせて「このグループなら賄える」と判断されています。**GCE provider の 1 箇所の契約違反さえ直せば、混在 providerID クラスタでも AWS / Azure と同列に使える**ことが確認できました。
+
+![パッチ版 CA での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
+
 ## OCI とさくらのクラウドはどうか
 
 「全クラウド」の残り 2 つも同じ物差しで確認しました。
@@ -239,7 +255,7 @@ gce_cloud_provider.go:122] Node azure-cil-azure-cil-vmss000004 has non-GCE
 | --- | --- | --- |
 | Azure | Cluster Autoscaler（VMSS） | 全チェーン成立・flow 観測 |
 | AWS | Cluster Autoscaler（ASG） | 全チェーン成立・flow 観測 |
-| GCP | CA は要フォーク修正 / 代替 CronJob resize | join まで自動で成立 |
+| GCP | Cluster Autoscaler（MIG、要フォーク修正） | 全チェーン成立・flow 観測 |
 | OCI | CronJob resize（API キー） | 配線成立・A1 在庫で起動せず |
 | さくら | provider なし | 対象外 |
 
@@ -271,9 +287,9 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 
 ## まとめ
 
-- NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure と AWS の両方についてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
+- NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure・AWS・GCP の 3 クラウドについてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
-- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、keyless の CronJob resize で代替しました。VM の join までは自動で成立しましたが、e2-micro の資源不足で通信観測には至っていません。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチしてビルドした CA では、この fatal が解消することを実機で確認しました。
+- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした CA に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → CA scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
 - OCI は keyless が API 仕様（RSA 署名）で使えず API キーの CronJob resize で代替、配線は成立したものの A1.Flex の在庫切れで起動せず。さくらのクラウドは upstream に CA provider が存在せず対象外でした。ノード自動供給の成立条件はクラウドごとに大きく異なります。
 - 実測で 6 つの落とし穴を踏みました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「1 GiB 級 VM では k3s+Cilium が安定しない（Azure/GCP の 2 クラウドで再現）」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
