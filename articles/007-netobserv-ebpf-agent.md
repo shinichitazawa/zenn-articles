@@ -33,7 +33,7 @@ NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワ�
 ## アーキテクチャ全体像
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph Node["各 Node (DaemonSet)"]
     Agent[eBPF Agent]
   end

@@ -38,21 +38,21 @@ published: false
 ## 全体アーキテクチャ
 
 ```mermaid
-flowchart LR
-  C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy:<br/>simple-shuffle]
-  L -- 25% --> M1[ollama: sarashina2.2-3b-instruct<br/>cpu-small node]
-  L -- 25% --> M2[ollama: PLaMo 2 8B<br/>cpu-medium node]
-  L -- 25% --> M3[ollama: Phi-4-mini 3.8B<br/>cpu-small node]
-  L -- 25% --> M4[ollama: GPT-OSS-20B MoE<br/>cpu-medium node]
+flowchart TB
+  C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy: simple-shuffle]
+  subgraph MODELS[ollama 4 モデルへ各 25%]
+    M1[sarashina2.2-3b-instruct<br/>cpu-small]
+    M2[PLaMo 2 8B<br/>cpu-medium]
+    M3[Phi-4-mini 3.8B<br/>cpu-small]
+    M4[GPT-OSS-20B MoE<br/>cpu-medium]
+  end
+  L --> MODELS
+  P[Prometheus] -. trigger .-> KEDA[KEDA scale-to-zero]
+  KEDA -.-> MODELS
+  K[Karpenter / EKS Auto Mode] -. provision .-> MODELS
   L -. callback .-> LF[Langfuse]
   LF -- batch 4-way 比較 --> J[LLM-as-judge<br/>Claude judge]
-  J -- score --> G[Grafana<br/>A/B dashboard]
-  P[Prometheus] -. trigger .-> KEDA[KEDA<br/>scale-to-zero]
-  KEDA -.-> M1
-  KEDA -.-> M2
-  KEDA -.-> M3
-  KEDA -.-> M4
-  K[Karpenter<br/>EKS Auto Mode] -. provision .-> M1 & M2 & M3 & M4
+  J -- score --> G[Grafana A/B dashboard]
 ```
 
 要点は次の通りです。
@@ -330,18 +330,16 @@ OSS 4 候補と AWS Nova Pro の 5-way 比較を手動 trigger (将来は webhoo
 
 ```mermaid
 sequenceDiagram
-  participant U as User/CLI
-  participant ES as Argo Events EventSource
-  participant SN as Argo Events Sensor
-  participant TP as temporal-rest-proxy
-  participant TF as Temporal Frontend
-  participant W as judge worker Pod
+  participant U as CLI
+  participant AE as Argo Events<br/>(EventSource→Sensor)
+  participant TP as rest-proxy
+  participant TF as Temporal
+  participant W as judge worker
   participant LF as Langfuse
-  participant LL as LiteLLM Claude judge
+  participant LL as Claude judge
 
-  U->>ES: POST /judge {"days":7}
-  ES->>SN: event 配信
-  SN->>TP: POST /start {workflow_type, args}
+  U->>AE: POST /judge {"days":7}
+  AE->>TP: POST /start {workflow_type, args}
   TP->>TF: gRPC StartWorkflowExecution
   TF->>W: task assign
   W->>LF: GET traces?tags=llm-ab-test-v1

@@ -28,81 +28,20 @@ VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で�
 
 ## 全体アーキテクチャ
 
-<!-- 高解像度の PNG 版 (drawio から export) を upload したらコメント解除:
-![アーキテクチャ全体図 (drawio export)](/images/008-tailscale-rotator.png)
--->
-
-下記は構造を mermaid で表現したものです。アイコン入りの高解像度版が必要なら、同じ構造を drawio で書き起こして `File > Export as > PNG` (Border 10px, Zoom 200%) すれば差し替え可能です。
+![アーキテクチャ全体図 (drawio から生成)](/images/008-tailscale-rotator.png)
+*全体図はクリックで原寸表示できます。主要フローだけを抜き出すと次の 1 本です。*
 
 ```mermaid
-flowchart LR
-  subgraph TS[Tailscale Cloud]
-    TSW[Webhook subscription<br/>nodeKeyExpiringInOneDay]
-    TSO[OAuth client<br/>scope: auth_keys]
-    TSA[POST /api/v2/tailnet/-/keys]
-    TST[Tailnet]
-  end
-
-  subgraph DEMO[AWS — EKS account 111111111111]
-    NLB[NLB / nginx-ingress<br/>webhooks.example.com /tailscale]
-
-    subgraph EKS[EKS cluster]
-      subgraph AE[ns: argo-events]
-        ES[EventSource<br/>webhook :13000]
-        EB[EventBus<br/>NATS JetStream]
-        SE[Sensor<br/>filter + trigger]
-      end
-      subgraph ARGO[ns: argo]
-        WT[WorkflowTemplate]
-        WP[Workflow Pod<br/>rotate.py]
-        ESO_K[ExternalSecret x2]
-      end
-      subgraph KRO[ns: kro / ack-system]
-        KR[Kro RGD IRSARole]
-        ACK[ACK iam-controller]
-      end
-    end
-
-    IAM1[IAM Role<br/>irsa role]
-    SM1[Secrets Manager<br/>tailscale-oauth-client]
-    SM2[Secrets Manager<br/>slack-webhook]
-    S3[S3<br/>argo artifacts]
-  end
-
-  subgraph KAJI[AWS — target account 222222222222]
-    IAM2[IAM Role<br/>cross-account]
-    SM3[Secrets Manager<br/>tailscale-auth]
-    ASG[Auto Scaling Group<br/>bastion-asg]
-    EC2[bastion EC2<br/>tag:subnet-router]
-    VPC[(private subnet<br/>10.0.0.0/16)]
-  end
-
-  SL[Slack]
-  GH[GitHub<br/>infra repo]
-  AC[ArgoCD]
-
-  TSW -- 1 webhook --> NLB
-  NLB -- 2 --> ES
-  ES --> EB --> SE
-  SE -- 3 submit --> WT
-  WT --> WP
-  WP -- 4 create_auth_key --> TSA
-  TSO -. bearer .-> TSA
-  WP -- 5 AssumeRole --> IAM1 --> IAM2
-  IAM2 -- 6 PutSecretValue --> SM3
-  IAM2 -- 7 StartInstanceRefresh --> ASG
-  ASG -- 8 rolling replace --> EC2
-  EC2 -- 9 GetSecretValue --> SM3
-  EC2 -. register node + advertise-routes .-> TST
-  EC2 --> VPC
-  WP -- 10 post_slack --> SL
-
-  ESO_K -. envFrom .-> WP
-  ESO_K -. sync .-> SM1
-  ESO_K -. sync .-> SM2
-
-  KR --> ACK --> IAM1
-  GH --> AC --> EKS
+flowchart TB
+  TSW[Tailscale webhook<br/>nodeKeyExpiringInOneDay] --> ES[Argo Events<br/>EventSource → Sensor]
+  ES -- submit --> WP[Argo Workflow Pod<br/>rotate.py]
+  WP -- 1 create_auth_key --> TSA[Tailscale API]
+  WP -- 2 AssumeRole --> IAM[cross-account IAM Role]
+  IAM -- 3 PutSecretValue --> SM[Secrets Manager<br/>tailscale-auth]
+  IAM -- 4 StartInstanceRefresh --> ASG[bastion ASG]
+  ASG -- rolling replace --> EC2[bastion EC2]
+  EC2 -- 5 GetSecretValue + tailscale up --> TST[Tailnet 再参加]
+  WP -- 6 通知 --> SL[Slack]
 ```
 
 矢印の番号は「実行時にトリガされる順序」を表します。

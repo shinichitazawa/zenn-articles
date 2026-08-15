@@ -29,7 +29,7 @@ published: false
 ## 全体構成
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph クラスタ内
     W[Whisper<br/>faster-whisper small<br/>CPU int8]
     N[n8n]
@@ -73,17 +73,9 @@ CPU での int8 量子化に対応しており、README のベンチマークで
 - **ClusterIP のみで公開しない**。音声とその文字起こしを外に出さないため、Ingress を付けず n8n からのみ到達させる
 - **リソース制限を慎重に決める**。ここで2回事故を起こしました(後述)
 
-## テスト音声の作り方 — 合成音声の注意点
+## テスト音声の作り方 — 台本を正解データにする
 
-検証には「正解が分かっている会議音声」が必要です。まず [espeak-ng](https://github.com/espeak-ng/espeak-ng)(OSS の音声合成)で日本語の会議台本を読み上げて Whisper に入れたところ、**全文がこの1行になりました**(実測)。
-
-```text
-チャンネル登録をお願いいたします!
-```
-
-台本のどこにもない文です。機械的すぎる合成音声は Whisper にとって音声として認識できず、学習データに頻出したと思われる定型句を「幻覚」として出力したものと考えられます(実測に基づく推測です)。**合成音声ならなんでもテストに使えるわけではない**、というのが最初の学びでした。
-
-そこで [Amazon Polly](https://aws.amazon.com/polly/pricing/) のニューラル音声(日本語話者 3 名: Takumi / Kazuha / Tomoko)で、12 発話・約 71 秒の定例会議を合成しました。台本には検証したい要素を仕込んであります。
+検証には「正解が分かっている会議音声」が必要です。[Amazon Polly](https://aws.amazon.com/polly/pricing/) のニューラル音声(日本語話者 3 名: Takumi / Kazuha / Tomoko)で、12 発話・約 71 秒の定例会議を合成しました。台本には検証したい要素を仕込んであります。
 
 - 品番と数量: 「A001 を三十個発注」
 - 金額 2 種: 「税抜き二十八万円」「合計三十二万円」
@@ -166,7 +158,7 @@ Polly 音声を通した結果です(実測)。**数値・金額・日付・人�
 対処として、Whisper の Pod に**非同期の受付シム**(FastAPI 約 40 行)を同居させました。受付は即座に `job_id` を返し、裏で `/asr` を呼んで結果をファイルに保存、別エンドポイントで取得できるようにします。n8n 側は次のループになります。
 
 ```mermaid
-flowchart LR
+flowchart TB
   S[投入 POST /jobs<br/>即応答] --> W[Wait 30秒]
   W --> P[GET /jobs/id<br/>即応答]
   P --> C{status}
@@ -243,7 +235,7 @@ stateDiagram-v2
 ## まとめ
 
 1. **GPU なし・arm64 でも Whisper は動く**。faster-whisper(CTranslate2 / int8)の small モデルで、数値・金額・人名は保持された。業務用語の誤認識は後段の正規化で扱う
-2. **合成音声は Whisper のテストに使えないことがある**。espeak-ng の音声は認識されず幻覚を返した。Polly のニューラル音声なら台本が正解データになり、1 円未満で検証できる
+2. **テスト音声は台本から合成すると、台本がそのまま正解データになる**。Polly のニューラル音声なら約 400 文字で 1 円未満、後段の精度評価がすべて突き合わせで行える
 3. **処理時間が読めない同期 API を n8n から呼んではいけない**。undici の headersTimeout(既定 300 秒)で切断される。受付 + ポーリングの非同期に分ける
 4. **重い推論をコントロールプレーンに同居させるなら、リソース制限・PriorityClass・probe 方式まで含めて設計する**。liveness の httpGet は「忙しくて応答できない」を「死んでいる」と誤判定する
 5. **AI の出力はコードで裏取りしてから確定する**。本文に無い金額の棄却・引用の一致率・日付計算のコード化は、今回も実測で誤りを検出した
@@ -252,7 +244,6 @@ stateDiagram-v2
 
 - [whisper-asr-webservice(GitHub)](https://github.com/ahmetoner/whisper-asr-webservice)
 - [faster-whisper(GitHub)](https://github.com/SYSTRAN/faster-whisper)
-- [espeak-ng(GitHub)](https://github.com/espeak-ng/espeak-ng)
 - [Amazon Polly pricing](https://aws.amazon.com/polly/pricing/)
 - [undici Client オプション(headersTimeout)](https://github.com/nodejs/undici/blob/main/docs/docs/api/Client.md)
 - [Liveness / Readiness / Startup Probes — Kubernetes Docs](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)

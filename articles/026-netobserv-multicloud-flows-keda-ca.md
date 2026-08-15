@@ -34,7 +34,7 @@ published: false
 ## 全体像
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph SCHED["自動チェーン"]
     K["KEDA cron<br/>11:50 に 0→1"] --> D["nginx Deployment<br/>(nodeSelector: cloud=azure)"]
     D -->|Pending| CA["Cluster Autoscaler"]
