@@ -150,7 +150,7 @@ sudo -E bin/netobserv-ebpf-agent
 
 「`tcpdump` 的に試す」用途に最適です。本記事の検証もこのモードで行います。
 
-## EKS で動かす落とし穴
+## EKS で動かす際の注意点
 
 README の Deployment test 節に重要な記述がある[^netobserv-readme]:
 

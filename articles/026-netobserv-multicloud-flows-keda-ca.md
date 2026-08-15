@@ -97,7 +97,7 @@ spec:
 14:42 頃  GCE VM が join（ただし e2-micro の資源不足で Ready を維持できず）
 ```
 
-Azure の 11:50 と 12:49 の間が空いているのは、後述する落とし穴（包括 toleration と、詰まったインスタンスの後始末で発生させた CA の backoff）を踏んで修正していたためです。修正後のチェーン自体には人手は入っていません。なお AWS の検証中には、スポットの自然な入れ替わり（旧インスタンスの回収と新インスタンスの join）まで観測できました。
+Azure の 11:50 と 12:49 の間が空いているのは、後述する問題（包括 toleration と、詰まったインスタンスの後始末で発生させた CA の backoff）への対処を行っていたためです。修正後のチェーン自体には人手は入っていません。なお AWS の検証中には、スポットの自然な入れ替わり（旧インスタンスの回収と新インスタンスの join）まで観測できました。
 
 ## NetObserv の配置 — direct-flp を全ノードへ
 
@@ -142,7 +142,7 @@ spec:
           command: ["sh","-c","until wget -q -T 3 -O /dev/null http://127.0.0.1:9879/healthz; do sleep 10; done"]
 ```
 
-DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けてはいけません**（後述の落とし穴 1）。initContainer は、後述の落とし穴 3 で導入した安全策です。
+DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けてはいけません**（後述の注意点 1）。initContainer は、後述の注意点 3 で導入した安全策です。
 
 ## 観測結果 — 同じ通信を両側から見る
 
@@ -180,7 +180,7 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 ### Pod 名で見る — Kubernetes enrichment と比較ダッシュボード
 
-ここまでの flow は IP の世界でした（落とし穴 5 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
+ここまでの flow は IP の世界でした（注意点 5 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
 
 ```json
 {"name": "enrich", "transform": {"type": "network", "network": {
@@ -224,7 +224,7 @@ AWS / Azure の provider は自形式でない providerID を単に読み飛ば�
 
 なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（CA が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
 
-代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。落とし穴 3 と同根で、これが 2 つ目のクラウドでの再現です。
+代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。注意点 3 と同根で、これが 2 つ目のクラウドでの再現です。
 
 ### GCE provider をフォークして直す
 
@@ -295,7 +295,7 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 さくらには ASG / MIG / VMSS のような「サーバグループ」プリミティブが存在しないため、**Cluster Autoscaler 自身がサーバとディスクを create / delete** します。scale-up 1 回は「ディスク作成（アーカイブからコピー、ここが数分かかる）→ サーバ作成（共有セグメント）→ ディスク接続 → ディスク修正（ホスト名 + スタートアップスクリプト注入）→ 電源 ON」という 5 段の API 呼び出しで、CA のループを塞がないよう goroutine で非同期に実行します。ノードグループの帰属はサーバのタグ（`ca-group-<name>`）、起動後の join はさくらの「スタートアップスクリプト」（note）が担い、kubelet には `--kubelet-arg=provider-id=sakuracloud://<zone>/<serverName>` を渡して CA がサーバと Node を相関できるようにします。scale-from-0 は `TemplateNodeInfo` が設定の labels/taints を広告することで成立します。
 
-`NodeGroupForNode` は最初から契約どおり「非 `sakuracloud://` の providerID には nil」を返すよう書きました。GCE provider で踏んだ轍を、自作 provider では踏まないためです。
+`NodeGroupForNode` は最初から契約どおり「非 `sakuracloud://` の providerID には nil」を返すよう書きました。GCE provider と同じ失敗を、自作 provider で繰り返さないためです。
 
 実機でのチェーンはこうなりました（すべて自動）。
 
@@ -316,12 +316,14 @@ enrichment を先に入れてあったので、5 クラウド目にして初め�
 
 ![さくら検証中の Pod 名付き flow カウンタ。凡例に xcloud-client ⇄ xcloud-nginx-sakura のペアが、rpi0 側(100.78.220.69)とさくら側(100.126.225.59)両方の agent の系列として現れている](/images/026-netobserv-sakura-podflows.png)
 
-実装で 2 つ、さくらの API 固有の癖を踏みました。どちらもドキュメントからは読み取りにくく、実測で判明したものです。
+実装では、さくらの API 固有の癖に 3 つ引っかかりました。いずれもドキュメントからは読み取りにくく、実測で判明したものです。
 
 1. **サーバプランは ID 指定だと 400**。`/product/server` が返すプラン ID（`100004002` など）を `ServerPlan: {"ID": ...}` に入れると「パラメータの指定誤り」で拒否されます。`{"CPU": 2, "MemoryMB": 4096}` の **spec 指定なら通ります**。
 2. **ディスク修正の直後は電源 ON できない**。ホスト名とスタートアップスクリプトを書き込む `PUT /disk/:id/config` の後、ディスクは一時的に変更中状態になり、すぐ電源 ON すると `409 disk_is_not_available` になります。再度 available を待ってから電源 ON する必要があります。
 
 3. **サーバ一覧のレスポンスには電源状態が含まれない**。一覧の結果で「起動中なら停止してから削除」と分岐すると、稼働中のサーバでも停止がスキップされ、削除が `409 server_power_must_be_down` で失敗します。削除時は状態を見ずに常に強制停止を先行させ、既に停止済みの 409 は無視するのが安全です。
+
+## 検証で判明した注意点
 
 ### 1. 包括 toleration の Pod が「死にかけノード」に吸着する
 
@@ -353,7 +355,7 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
 - GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした CA に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → CA scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
 - OCI は keyless が API 仕様（RSA 署名）で使えず API キーの CronJob resize で代替、配線は成立したものの A1.Flex の在庫切れで起動せず。さくらのクラウドは upstream に CA provider が存在しないため**フォークに自作**し、5 クラウド目の全チェーン（CA がサーバを create → join → Pod 名付き flow 観測 → 自動削除）を成立させました。ノード自動供給の成立条件はクラウドごとに大きく異なります。
-- 実測で 6 つの落とし穴を踏みました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「1 GiB 級 VM では k3s+Cilium が安定しない（Azure/GCP の 2 クラウドで再現）」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
+- 検証の過程で 6 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「1 GiB 級 VM では k3s+Cilium が安定しない（Azure/GCP の 2 クラウドで再現）」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
 

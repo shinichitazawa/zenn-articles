@@ -169,7 +169,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 >
 > — Azure OpenAI Chat Model ノード(v1)の型定義より
 
-つまり Azure では n8n を触る前に Azure 側でデプロイを作る作業が前提になり、しかもフロー中の「モデル名」は自分が付けた任意の名前になります。他プロバイダのフローを見比べたときに、ここだけ意味論が違う点は運用上の落とし穴になり得ます。
+つまり Azure では n8n を触る前に Azure 側でデプロイを作る作業が前提になり、しかもフロー中の「モデル名」は自分が付けた任意の名前になります。他プロバイダのフローを見比べたときに、ここだけ意味論が違う点は運用上、混乱のもとになり得ます。
 
 3 つの設定画面を並べると、同じ「Chat Model」でも入力を求められるものがまったく違うことが一目で分かります。Bedrock は認証方式とモデルの出自、Vertex はプロジェクトとリージョン、Azure はデプロイ名です。
 
@@ -328,7 +328,6 @@ sequenceDiagram
 
 ## 参考
 
-- 検証時の構成ファイル: [n8n](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - [AI Agent node — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/)
 - [AWS Bedrock Chat Model node — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmchatawsbedrock/)
 - [Google Vertex Chat Model node — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmchatgooglevertex/)
@@ -345,3 +344,4 @@ sequenceDiagram
 - [n8n upstream: LmChatGoogleVertex.node.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/LmChatGoogleVertex/LmChatGoogleVertex.node.ts)
 - [n8n upstream: vertex-location.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/gemini-common/vertex-location.ts)
 - [n8n upstream: resolveBedrockRegion.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/utils/aws/resolveBedrockRegion.ts)
+- 検証時の構成ファイル: [n8n](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）

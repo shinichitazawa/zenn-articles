@@ -604,7 +604,7 @@ spec:
 
 これで Workflow Pod 自体は `secretsmanager:GetSecretValue` を直接持たません。ESO の IRSA がその責務を一手に引き受ける構造になります[^2]。
 
-## 落とし穴 (実装で踏んだもの)
+## 実装で判明した注意点
 
 | 罠 | 症状 | 対策 |
 |---|---|---|

@@ -1,5 +1,5 @@
 ---
-title: "n8n で AI エージェントのワークフローを組んで踏んだ落とし穴 11 個"
+title: "n8n で AI エージェントのワークフローを組んで踏んだ落とし穴 16 個"
 emoji: "🕳️"
 type: "tech"
 topics: ["n8n", "bedrock", "ai", "workflow", "llm"]
@@ -245,6 +245,91 @@ n8n の Workflow SDK でコードからワークフローを作る場合の実�
 
 最後の点は特に厄介です。作成 API は通り、一見すると成功しているように見えます。ノードを追加する前に必ず型定義を確認してください。
 
+## 追記: その後の検証でさらに踏んだ落とし穴(2026-08-14)
+
+初稿のあと、脆弱性トリアージと「会議音声 → ToDo 抽出」の 2 本を追加で作りました。そこで新たに踏んだものを追記します。いずれも筆者環境での実測です。
+
+## 12. HTTP Request は応答ヘッダを 5 分しか待てない
+
+クラスタ内に置いた文字起こしサービス(Whisper)を HTTP Request ノードで呼んだところ、ノードの timeout を 30 分に設定したにもかかわらず、**約 313 秒で `socket hang up` になりました**(実測 2 回、いずれも約 5 分 15 秒)。
+
+原因は n8n ではなく、Node.js の HTTP クライアント(undici)の既定値です。undici の [Client オプション](https://github.com/nodejs/undici/blob/main/docs/docs/api/Client.md)にはこうあります。
+
+> `headersTimeout` {number|null} The timeout, in milliseconds, the parser waits to receive the complete HTTP headers before the request times out. Use `0` to disable it entirely. **Default:** `300e3`.
+
+**応答ヘッダが 300 秒以内に届かないと切断される**、という制限です。文字起こしのような「処理が終わるまで一切応答しない」同期 API は、処理が 5 分を超えた時点で必ずこれに当たります。ノードの timeout 設定はこのヘッダ待ちには効きませんでした(実測)。
+
+対処は呼び出しの非同期化です。呼び先に「受付だけして即応答し、結果は別エンドポイントで返す」薄いラッパーを足し、n8n 側は次の形にしました。
+
+```text
+投入(POST /jobs → 即座に job_id が返る)
+  → Wait(30秒)
+  → 結果を取得(GET /jobs/{id}、即応答)
+  → IF status = done → 後続へ
+       まだなら → Wait に戻る(ループ)
+```
+
+各リクエストが秒で返るため、ヘッダ待ちの制限に当たりません。処理時間が読めない外部サービスを呼ぶ場合は、最初からこの形にしておくと安全です。あわせてワークフロー設定の実行タイムアウト(Workflow Settings → Timeout)を設定し、ジョブが返らない場合の無限ループを止めています。
+
+## 13. Code ノードの日付計算は UTC でずれる
+
+会議の「あす」を絶対日付に変換する処理で、**「あす」が当日になる**ずれが出ました(実測)。
+
+原因は、Code ノードがタスクランナーで実行され、その環境のタイムゾーンが UTC だったことです。`new Date()` のローカル getter(`getDate()` など)で日付を組み立てると、JST との 9 時間差で日付境界がずれます。コンテナに `GENERIC_TIMEZONE=Asia/Tokyo` を設定していても、この getter には効きませんでした(実測)。
+
+対処は、日付演算を UTC getter + 明示オフセットに統一することです。
+
+```javascript
+// ✗ ローカル getter(ランナーが UTC だと 9 時間ずれる)
+const d = new Date(held + 'T00:00:00+09:00');
+d.setDate(d.getDate() + 1);           // 「あす」のつもりが当日になった
+
+// ○ UTC 基準で計算し、日付の加算はミリ秒で行う
+const base = new Date(held + 'T00:00:00Z');
+const next = new Date(base.getTime() + 86400000);
+const y = next.getUTCFullYear();      // getter も UTC 側を使う
+```
+
+`$now` は n8n が Luxon で返すため `$now.setZone('Asia/Tokyo')` で明示すれば安全です。素の `Date` を使う箇所だけが罠になります。
+
+## 14. `executeOnce` は入力を先頭 1 件に切り詰める
+
+未完了 ToDo を全件読んで分類する Code ノードに `executeOnce: true` を付けたところ、**2 件あるはずの集計が 1 件になりました**(実測)。
+
+これは仕様どおりの動作です。[公式ドキュメント](https://docs.n8n.io/build/understand-workflows/workflow-components/work-with-nodes)は Execute Once をこう説明しています。
+
+> The node executes once, with data from the first item it receives. It doesn't process any extra items.
+
+「1 回だけ実行する」ではなく「**先頭 1 件のデータで** 1 回だけ実行する」です。`$input.all()` で全件を集計するつもりの Code ノードに付けると、`$input.all()` 自体が 1 件しか返しません。
+
+使い分けはこうなります。
+
+- **付ける**: 複数アイテムが流れてきても 1 回で済む副作用ノード(サマリ通知の送信など)。ただし参照は `$('ノード名').all()` で行う
+- **付けない**: `$input.all()` で全アイテムを読む集計 Code ノード。`runOnceForAllItems` モード自体が「全アイテムで 1 回」なので、そもそも重ねる必要がありません
+
+## 15. `ignoreBots` は「Mozilla/5.0」だけの UA も弾く
+
+6 節の追補です。`ignoreBots: true` の Webhook を `curl -A 'Mozilla/5.0'` で叩いたところ、それでも拒否されました(実測。応答は「Authorization data is wrong!」で、認証エラーのような文言ですが実体は bot 判定です)。完全なブラウザ UA 文字列(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...`)にすると通りました。
+
+実ブラウザからの操作には影響しませんが、curl やスクリプトで動作確認する場合は UA を完全な形で渡す必要があります。エラー文言から原因にたどり着きにくいので、`ignoreBots` 付き Webhook が 403 を返したらまず UA を疑ってください。
+
+## 16. モデルのコンテンツフィルタで出力が空になる
+
+脆弱性アドバイザリを読ませて自環境への影響を判定させるワークフローで、Bedrock の Amazon Nova が**構造化出力をまったく返さない**事象が出ました。モデルの生出力を確認すると、次の 1 行だけが返っていました(実測)。
+
+```text
+- The generated text has been blocked by our content filters.
+```
+
+脆弱性・悪用といった話題がフィルタに触れたものです。パーサ側では「形式に合わない出力」としてしか見えないため、原因の切り分けにはモデルの生出力(実行データの ai_languageModel 側)を見る必要があります。
+
+対処は 2 つ併用しました。
+
+1. プロンプトの言い換え。「悪用条件」「攻撃手法」ではなく「アドバイザリが対象としている条件」「必要な保守作業」という保守業務の語彙に寄せると通りました(実測。20 件中 19 件が成功)
+2. それでも個別に落ちる項目はあるため、AI ノードを `onError: continueRegularOutput` にして、失敗した項目はフラグ付きの「要確認」として後続に流し、1 件の失敗で全体を止めない
+
+セキュリティ関連の文書を扱うワークフローでは、この種のフィルタ起因の失敗を設計に織り込んでおく必要があります。
+
 ## まとめ
 
 1. **`maxTokensToSample` の既定は 2000**。日本語の構造化出力はすぐ超えるため明示指定が要る
@@ -253,15 +338,20 @@ n8n の Workflow SDK でコードからワークフローを作る場合の実�
 4. **サブワークフローをツールにするには publish が必要**(公式ドキュメントに記載を確認できず、実測)
 5. **Wait を跨いで前段データは読めない**。待機前に保存し、`$execution.id` で更新する設計にする
 6. **出力を疑う前に入力を見る**。AI の回答は、たいてい渡した入力に対しては正しい
+7. **応答ヘッダの待ち時間は 300 秒が上限**(undici の既定)。長い処理は投入 + ポーリングに分ける
+8. **Code ノードの `Date` は UTC 前提で書く**。`executeOnce` は集計ノードに付けない
+9. **コンテンツフィルタでも出力は空になる**。AI ノードは 1 件の失敗で全体を止めない設定にしておく
 
 エージェントの精度を上げる作業の大半は、プロンプトの工夫ではなく、**渡すデータと配線の設計**でした。
 
 ## 参考
 
-- 検証時の構成ファイル: [n8n](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - [Wait node — n8n Docs](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.wait/)
 - [Call n8n Workflow Tool — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolworkflow/)
 - [AI Agent node — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/)
 - [AWS Bedrock Chat Model node — n8n Docs](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmchatawsbedrock/)
 - [n8n upstream: LmChatAwsBedrock.node.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/LmChatAwsBedrock/LmChatAwsBedrock.node.ts)
 - [Tailscale Serve が付与するヘッダ](https://tailscale.com/s/serve-headers)
+- [undici Client オプション(headersTimeout)](https://github.com/nodejs/undici/blob/main/docs/docs/api/Client.md)
+- [Work with nodes(Execute Once)— n8n Docs](https://docs.n8n.io/build/understand-workflows/workflow-components/work-with-nodes)
+- 検証時の構成ファイル: [n8n](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n)([k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み)
