@@ -204,6 +204,8 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 | node-exporter (`node_network_*`) | ノード NIC 合計 | Pod も相手も |
 | metrics-server (`kubectl top`) | CPU/メモリ使用量 | ネットワークは一切対象外 |
 
+なお agent には既定で無効の組み込み eBPF フックがあり、`ENABLE_RTT`(TCP RTT)・`ENABLE_DNS_TRACKING`(DNS レイテンシ/応答コード)・`ENABLE_PKT_DROPS`(`kfree_skb` トレースポイントによるドロップ捕捉。tracefs の hostPath マウントが必要)を有効化すると、flow に `TimeFlowRttNs` / `Dns*` / `PktDrop*` フィールドが追加されます。これを FLP でヒストグラム化(`valueScale` で秒に正規化)すれば、ワークロードペア別の RTT p95、DNS レイテンシ、カーネルのドロップ理由別レートまで同じダッシュボードに並びます(上のキャプチャ下段)。
+
 「eBPF 固有」の価値はこの表の 1 行目に尽きます。cAdvisor 以下はどれもインターフェースのカウンタを読んでいるだけなので合計しか出せず、「argocd-repo-server が application-controller と話している」という**ペアの情報**はカーネル内で flow(5-tuple)を捕捉する eBPF でしか得られません。なお NetObserv の専用 UI(flow テーブルやトポロジ画面)は OpenShift Console のプラグインとして提供されるもので、素の k8s/k3s には載らないため、vanilla 環境ではこのように Prometheus/Grafana(または Loki + Grafana)で可視化するのが現実解です。
 
 ## GCP だけ Cluster Autoscaler が使えなかった
