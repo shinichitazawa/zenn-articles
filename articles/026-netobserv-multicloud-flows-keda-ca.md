@@ -178,6 +178,18 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 ![Prometheus の targets。両ノードの agent が UP](/images/026-netobserv-prom-targets.png)
 
+### なぜ eBPF だけが「誰と誰」を出せるのか — パケット構造から
+
+そもそも NetObserv が他の観測手段と何が違うのかは、1 つのパケットの構造にさかのぼると分かりやすいです。クラスタ内を流れる TCP セグメントは、下位から Ethernet(L2)・IP(L3)・TCP(L4)・ペイロード(L7)のヘッダが積み重なった構造をしています。通信の両端（送信元と宛先の IP）が初めて分かるのは L3、どのサービスかが分かるのは L4 のポートです。
+
+![1 パケットを L2/L3/L4/L7 に分解した図。flow を一意に決める 5 フィールド(src/dst IP, src/dst port, proto)を枠で強調](/images/026-netobserv-packet-map.png)
+
+同じパケットを、観測ツールごとに「どこを読むか」で重ねると差が一目で分かります。NetObserv は eBPF で L2〜L4 のヘッダを**その場でパース**して 5-tuple を組み立てます。一方 cAdvisor や node-exporter は veth や NIC の**バイトカウンタを読むだけ**で、パケットのヘッダを解釈しません。だから「合計いくら流れたか」しか出せず、通信相手は分かりません。metrics-server はそもそもネットワークを対象にせず CPU/メモリだけです。
+
+![各観測ソースがパケットのどの層を読むかを重ねたレーン図。eBPF は L2〜L4 を解析、cAdvisor/node-exporter はバイトを数えるだけ、metrics-server は対象外](/images/026-netobserv-packet-taps.png)
+
+つまり「eBPF 固有」の価値は、カウンタを読むのではなく**ヘッダをパースする**という一点に由来します。そして RTT・DNS・パケットドロップ・（フォークで足した）TCP 再送・SIP も、同じ flow レコードに別々の eBPF プログラムが書き込むだけなので、下記の enrichment がそのまま全フックに効きます。
+
 ### Pod 名で見る — Kubernetes enrichment と比較ダッシュボード
 
 ここまでの flow は IP の世界でした（注意点 5 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
