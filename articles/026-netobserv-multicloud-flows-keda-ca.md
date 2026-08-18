@@ -2,13 +2,13 @@
 title: "NetObserv でマルチクラウド k3s のノード間通信を観測する"
 emoji: "🛰️"
 type: "tech"
-topics: ["kubernetes", "k3s", "ebpf", "keda", "azure"]
+topics: ["kubernetes", "k3s", "ebpf", "keda", "clusterautoscaler"]
 published: false
 ---
 
 ## はじめに
 
-以前の記事（NetObserv eBPF Agent — CNI 非依存のネットワーク観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM（Azure・AWS）を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。GCP も試みましたが、後述する 2 つの制約（Cluster Autoscaler の GCE provider の実装と、e2-micro のリソース）により、ノードの join までで通信観測には至りませんでした。その経緯も含めて書きます。
+以前の記事（NetObserv eBPF Agent — CNI 非依存のネットワーク観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP・さくらのクラウドの 4 クラウドで、GCP は Cluster Autoscaler の GCE provider を、さくらは provider そのものをフォークして成立させました。OCI は自動化までは通しましたが在庫都合でノードが起動せず、その経緯も含めて書きます。
 
 もう 1 つのテーマは検証の仕方です。ノードやワークロードを手で起動してしまうと自動化の検証になりません。そこで **KEDA の cron スケーラが決まった時刻にワークロードを 0→1 に起こし、行き場のない Pod を Cluster Autoscaler が検知してクラウドノードを 0→1 で起動する**、という人手ゼロのチェーンを組み、その通信を NetObserv で観測しました。終了時刻には KEDA が 0 に戻し、Cluster Autoscaler がノードを畳むところまで自動です。
 
@@ -178,7 +178,7 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 ![Prometheus の targets。両ノードの agent が UP](/images/026-netobserv-prom-targets.png)
 
-### なぜ eBPF だけが「誰と誰」を出せるのか — パケット構造から
+### なぜ eBPF だけが通信相手まで分かるのか — パケット構造から
 
 そもそも NetObserv が他の観測手段と何が違うのかは、1 つのパケットの構造にさかのぼると分かりやすいです。クラスタ内を流れる TCP セグメントは、下位から Ethernet(L2)・IP(L3)・TCP(L4)・ペイロード(L7)のヘッダが積み重なった構造をしています。通信の両端（送信元と宛先の IP）が初めて分かるのは L3、どのサービスかが分かるのは L4 のポートです。
 
@@ -249,7 +249,7 @@ func (gce *GceCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.N
 	ref, err := GceRefFromProviderId(node.Spec.ProviderID)
 	if err != nil {
 		// 混在 providerID クラスタでは他プロバイダのノードが混ざる。
-		// 契約上はエラーではなく nil を返してスキップするのが正しい。
+		// 契約上、管理外ノードにはエラーではなく nil を返してスキップする。
 		klog.V(4).Infof("Node %v has non-GCE providerID %q, treating as unmanaged", node.Name, node.Spec.ProviderID)
 		return nil, nil
 	}
@@ -334,8 +334,7 @@ enrichment を先に入れてあったので、5 クラウド目にして初め�
 
 1. **サーバプランは ID 指定だと 400**。`/product/server` が返すプラン ID（`100004002` など）を `ServerPlan: {"ID": ...}` に入れると「パラメータの指定誤り」で拒否されます。`{"CPU": 2, "MemoryMB": 4096}` の **spec 指定なら通ります**。
 2. **ディスク修正の直後は電源 ON できない**。ホスト名とスタートアップスクリプトを書き込む `PUT /disk/:id/config` の後、ディスクは一時的に変更中状態になり、すぐ電源 ON すると `409 disk_is_not_available` になります。再度 available を待ってから電源 ON する必要があります。
-
-3. **サーバ一覧のレスポンスには電源状態が含まれない**。一覧の結果で「起動中なら停止してから削除」と分岐すると、稼働中のサーバでも停止がスキップされ、削除が `409 server_power_must_be_down` で失敗します。削除時は状態を見ずに常に強制停止を先行させ、既に停止済みの 409 は無視するのが安全です。
+3. **サーバ一覧のレスポンスには電源状態が含まれない**。一覧の結果で「起動中なら停止してから削除」と分岐すると、稼働中のサーバでも停止がスキップされ、削除が `409 server_power_must_be_down` で失敗します。削除時は状態を見ずに常に強制停止を先行させ、既に停止済みで返る 409 は無視する、という実装にしました。
 
 ## 検証で判明した注意点
 
