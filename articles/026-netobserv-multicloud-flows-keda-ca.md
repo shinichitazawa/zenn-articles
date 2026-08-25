@@ -346,19 +346,15 @@ enrichment を先に入れてあったので、5 クラウド目にして初め�
 
 FLP の設定で Prometheus を `write` ステージに書くと、起動時に panic します（`getWriter` で落ちる様子がスタックトレースに出ます）。正しくは `encode` ステージです。また設定に port を書いても実測では効かず、メトリクスサーバは既定の `:9090` で待ち受けました（起動ログに `StartServerAsync: addr = :9090` と出ます）。scrape 側の annotation はこの実効ポートに合わせます。
 
-### 3. 1 GiB の VM では Cilium が起動ループに入る
-
-当初の VMSS は `Standard_B2pts_v2`（2 vCPU / 1 GiB）でした。ブート直後は k3s agent・Cilium・Envoy・Tailscale・NetObserv agent の初期化が重なり、**load average が 2 vCPU に対して 10〜11 のまま 28 分収束しませんでした**（実測）。Cilium は probe が応答できず、`Timed out waiting for pre-existing resources ... CiliumNetworkPolicy` の fatal で再起動し、再起動のたびに BPF の再ロードで負荷が上がる悪循環に入ります。`Standard_B2pls_v2`（4 GiB）へ上げたところ、同じ構成が数分で安定しました。あわせて、NetObserv agent には Cilium の healthz を待つ initContainer を入れ、ブート時の競合を減らしています。なお GCP の `e2-micro`（1 GiB・共有 vCPU）でも同根の症状（kubelet が Ready を維持できない）を確認しており、この構成のノードは実質 2 vCPU / 4 GiB が下限と考えています。
-
-### 4. ASG のタグが消えると CA は静かに沈黙する
+### 3. ASG のタグが消えると CA は静かに沈黙する
 
 AWS 側で最初、CA が何の反応も示さなかった原因は、ASG から Cluster Autoscaler 用のタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。auto-discovery タグ 2 つ（`k8s.io/cluster-autoscaler/enabled` とクラスタ名）が無いと CA はグループを発見せず、scale-from-0 用の node-template タグ 3 つ（label 2 + taint 1）が無いと発見しても賄えると判断できません。どちらもエラーにはならず、単に何も起きないため気づきにくいです。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました。
 
-### 5. IP をラベルにした flow メトリクスは Pod の入れ替えで分断される
+### 4. IP をラベルにした flow メトリクスは Pod の入れ替えで分断される
 
 flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため、client Pod をローリング更新した瞬間に IP が変わり、**グラフ上は通信が止まったように見えました**（実際は新 IP の別系列として継続）。スポットの入れ替わりでも同じことが起きます。K8s 名（Pod 名や workload 名）で追いたい場合は、FLP の Kubernetes enrichment を有効にしてラベルを付け替える必要があります。direct-flp の素の flow は IP の世界だ、という当たり前の事実を、グラフの「偽の断絶」で体感しました。
 
-### 6. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
+### 5. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
 
 詰まったインスタンスを `az vmss delete-instances` で外から消したところ、ちょうど走っていた Cluster Autoscaler のリサイズ要求と競合して失敗が記録され、**ノードグループがスケールアップ backoff に入りました**。イベントには何も出ず、ログに `Node group azure-cil-vmss is not ready for scaleup - backoff` が出るだけなので気づきにくいです。CA が管理するリソースには外から触らないのが原則で、触ってしまった場合は backoff の解消（時間経過か CA の再起動）が要ります。
 
