@@ -238,7 +238,7 @@ AWS / Azure の provider は自形式でない providerID を単に読み飛ば�
 
 なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（CA が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
 
-代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。注意点 3 と同根で、これが 2 つ目のクラウドでの再現です。
+代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。
 
 ### GCE provider をフォークして直す
 
@@ -364,7 +364,7 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
 - GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした CA に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → CA scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
 - OCI は keyless が API 仕様（RSA 署名）で使えず API キーの CronJob resize で代替、配線は成立したものの A1.Flex の在庫切れで起動せず。さくらのクラウドは upstream に CA provider が存在しないため**フォークに自作**し、5 クラウド目の全チェーン（CA がサーバを create → join → Pod 名付き flow 観測 → 自動削除）を成立させました。ノード自動供給の成立条件はクラウドごとに大きく異なります。
-- 検証の過程で 6 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「1 GiB 級 VM では k3s+Cilium が安定しない（Azure/GCP の 2 クラウドで再現）」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
+- 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
 
