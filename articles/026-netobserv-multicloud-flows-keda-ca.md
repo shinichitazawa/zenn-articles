@@ -101,7 +101,7 @@ Azure の 11:50 と 12:49 の間が空いているのは、後述する問題（
 
 ## NetObserv の配置 — direct-flp を全ノードへ
 
-agent は [direct-flp モード](https://github.com/netobserv/netobserv-ebpf-agent/blob/main/docs/config.md)で動かします。公式の説明どおり、flowlogs-pipeline（FLP）が agent 内で動くため、collector を別に立てずに変換・出力まで完結します。
+NetObserv の標準構成は 2 段です。各ノードの eBPF agent が flow レコードを捕らえ、それを集約側の flowlogs-pipeline（FLP。flow の変換・エンリッチ・出力を担うパイプライン）へ送って処理します。[direct-flp モード](https://github.com/netobserv/netobserv-ebpf-agent/blob/main/docs/config.md)はこの FLP を agent プロセスに内蔵する構成で、collector を別に立てずに各ノード内で変換・出力まで完結します。ノードが増減するマルチクラウド構成では、集約点を持たないこの形が扱いやすいため、本記事では全ノードを direct-flp で動かします。
 
 > In `direct-flp` mode, flowlogs-pipeline is run internally from the agent, allowing more filtering, transformations and exporting options.
 >
