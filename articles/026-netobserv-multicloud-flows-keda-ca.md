@@ -192,7 +192,7 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 ### Pod 名で見る — Kubernetes enrichment と比較ダッシュボード
 
-ここまでの flow は IP の世界でした（注意点 5 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
+ここまでの flow は IP の世界でした（注意点 4 の遠因でもあります）。FLP の `transform/network` に `add_kubernetes` ルールを足すと、flow の IP が in-cluster の informer で解決され、`SrcK8S_Name` / `SrcK8S_Namespace` / `SrcK8S_OwnerName` などの Kubernetes 名が付きます。direct-flp のままで動き、必要なのは agent の ServiceAccount に pods/services/nodes などの read RBAC を与えることだけです。
 
 ```json
 {"name": "enrich", "transform": {"type": "network", "network": {
