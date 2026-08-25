@@ -142,7 +142,7 @@ spec:
           command: ["sh","-c","until wget -q -T 3 -O /dev/null http://127.0.0.1:9879/healthz; do sleep 10; done"]
 ```
 
-DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けてはいけません**（後述の注意点 1）。initContainer は、後述の注意点 3 で導入した安全策です。
+DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けてはいけません**（後述の注意点 1）。initContainer は、ブート直後に Cilium と agent の初期化が競合しないよう、Cilium の healthz 応答を待ってから agent を開始するための安全策です。
 
 ## 観測結果 — 同じ通信を両側から見る
 
