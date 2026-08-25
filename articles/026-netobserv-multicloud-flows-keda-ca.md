@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-以前の記事（NetObserv eBPF Agent — CNI 非依存のネットワーク観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP・さくらのクラウドの 4 クラウドで、GCP は Cluster Autoscaler の GCE provider を、さくらは provider そのものをフォークして成立させました。OCI は自動化までは通しましたが在庫都合でノードが起動せず、その経緯も含めて書きます。
+以前の記事（NetObserv eBPF Agent — CNI 非依存のネットワーク観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP の 3 クラウドで、GCP は Cluster Autoscaler の GCE provider をフォークして成立させました。
 
 もう 1 つのテーマは検証の仕方です。ノードやワークロードを手で起動してしまうと自動化の検証になりません。そこで **KEDA の cron スケーラが決まった時刻にワークロードを 0→1 に起こし、行き場のない Pod を Cluster Autoscaler が検知してクラウドノードを 0→1 で起動する**、という人手ゼロのチェーンを組み、その通信を NetObserv で観測しました。終了時刻には KEDA が 0 に戻し、Cluster Autoscaler がノードを畳むところまで自動です。
 
@@ -285,57 +285,6 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 ![パッチ版 CA での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
 
-## OCI とさくらのクラウドはどうか
-
-「全クラウド」の残り 2 つも同じ物差しで確認しました。
-
-**OCI（Oracle Cloud）**は、この検証の要である keyless の道が API の仕様で塞がっています。OCI の API は毎リクエストを RSA 秘密鍵で署名する方式で、外部 OIDC の token を持ち込む federation がこの用途では使えません。そのため API キーを Secret として与え、python SDK（`update_instance_pool`）で instance pool を resize する CronJob を組みました。自動発火（16:32）で resize リクエストは通り、pool は SCALING に遷移しましたが、work-request が **`LaunchInstancesInPool FAILED`（70% 地点）** で 2 回失敗し、インスタンスは 1 台も起動しませんでした。Always Free 枠の `A1.Flex` は東京リージョンで慢性的に在庫が薄く、いわゆる "Out of host capacity" です。**自動化の配線は成立、キャパシティで不成立**という結果でした（撤収側の CronJob は 17:35 に発火し、pool は size 0 で確定しています）。
-
-**さくらのクラウド**は、Cluster Autoscaler の upstream に provider 実装が存在しません（`cloudprovider/` ディレクトリに該当なし）。API 認証も静的な API キーのみで、外部 OIDC federation に相当する仕組みはありません。一度は対象外としましたが、思い直して **provider をフォークに自作**しました（次章）。
-
-クラウド 5 つを同じチェーンに載せようとした結果を並べると、「ノードの自動供給」の成立条件はクラウドごとにばらばらだということがよく分かります。
-
-| クラウド | ノード供給 | 結果 |
-| --- | --- | --- |
-| Azure | Cluster Autoscaler（VMSS） | 全チェーン成立・flow 観測 |
-| AWS | Cluster Autoscaler（ASG） | 全チェーン成立・flow 観測 |
-| GCP | Cluster Autoscaler（MIG、要フォーク修正） | 全チェーン成立・flow 観測 |
-| OCI | CronJob resize（API キー） | 配線成立・A1 在庫で起動せず |
-| さくら | Cluster Autoscaler（**provider 自作**） | 全チェーン成立・flow 観測 |
-
-## provider が無いなら作る — sakuracloud provider の自作
-
-さくらのクラウドで同じチェーンを成立させるため、Cluster Autoscaler のフォークに `cloudprovider/sakuracloud` を新規実装しました。設計は upstream の実装規約（provider が無いクラウド向けの Hetzner provider の型）に揃えています。
-
-さくらには ASG / MIG / VMSS のような「サーバグループ」プリミティブが存在しないため、**Cluster Autoscaler 自身がサーバとディスクを create / delete** します。scale-up 1 回は「ディスク作成（アーカイブからコピー、ここが数分かかる）→ サーバ作成（共有セグメント）→ ディスク接続 → ディスク修正（ホスト名 + スタートアップスクリプト注入）→ 電源 ON」という 5 段の API 呼び出しで、CA のループを塞がないよう goroutine で非同期に実行します。ノードグループの帰属はサーバのタグ（`ca-group-<name>`）、起動後の join はさくらの「スタートアップスクリプト」（note）が担い、kubelet には `--kubelet-arg=provider-id=sakuracloud://<zone>/<serverName>` を渡して CA がサーバと Node を相関できるようにします。scale-from-0 は `TemplateNodeInfo` が設定の labels/taints を広告することで成立します。
-
-`NodeGroupForNode` は最初から契約どおり「非 `sakuracloud://` の providerID には nil」を返すよう書きました。GCE provider と同じ失敗を、自作 provider で繰り返さないためです。
-
-実機でのチェーンはこうなりました（すべて自動）。
-
-```text
-00:59  KEDA cron 発火、xcloud-nginx-sakura が 0→1、Pod は Pending
-01:07  CA-sakura: Final scale-up plan: [{sakura-cil 0->1 (max: 2)}]
-       sakuracloud: provisioning server sakura-cil-wzybz(→修正を挟み ps1na)
-01:16  サーバ起動、tailscale 参加 → k3s join、約 2 分で Ready
-01:18  Pod Running(10.0.6.192)、client からの HTTP が 200 に
-01:19  rpi0 側とさくら側、両方の agent が Pod 名付きで
-       xcloud-client ➜ xcloud-nginx-sakura の flow を観測
-01:45  KEDA 窓終了で Pod が 0 に
-02:21  CA-sakura: Scale-down: removing empty node "sakura-cil-ps1na"
-       sakuracloud: deleting server → サーバはディスクごと削除、0 台に戻る
-```
-
-enrichment を先に入れてあったので、5 クラウド目にして初めて「IP ではなく **Pod 名で**」クロスクラウド flow が見えました。
-
-![さくら検証中の Pod 名付き flow カウンタ。凡例に xcloud-client ⇄ xcloud-nginx-sakura のペアが、rpi0 側(100.78.220.69)とさくら側(100.126.225.59)両方の agent の系列として現れている](/images/026-netobserv-sakura-podflows.png)
-
-実装では、さくらの API 固有の癖に 3 つ引っかかりました。いずれもドキュメントからは読み取りにくく、実測で判明したものです。
-
-1. **サーバプランは ID 指定だと 400**。`/product/server` が返すプラン ID（`100004002` など）を `ServerPlan: {"ID": ...}` に入れると「パラメータの指定誤り」で拒否されます。`{"CPU": 2, "MemoryMB": 4096}` の **spec 指定なら通ります**。
-2. **ディスク修正の直後は電源 ON できない**。ホスト名とスタートアップスクリプトを書き込む `PUT /disk/:id/config` の後、ディスクは一時的に変更中状態になり、すぐ電源 ON すると `409 disk_is_not_available` になります。再度 available を待ってから電源 ON する必要があります。
-3. **サーバ一覧のレスポンスには電源状態が含まれない**。一覧の結果で「起動中なら停止してから削除」と分岐すると、稼働中のサーバでも停止がスキップされ、削除が `409 server_power_must_be_down` で失敗します。削除時は状態を見ずに常に強制停止を先行させ、既に停止済みで返る 409 は無視する、という実装にしました。
-
 ## 検証で判明した注意点
 
 ### 1. 包括 toleration の Pod が「死にかけノード」に吸着する
@@ -360,10 +309,9 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 
 ## まとめ
 
-- NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure・AWS・GCP・さくらの 4 クラウドについてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました（さくらは Kubernetes enrichment により Pod 名付き）。
+- NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure・AWS・GCP の 3 クラウドについてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
 - GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした CA に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → CA scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
-- OCI は keyless が API 仕様（RSA 署名）で使えず API キーの CronJob resize で代替、配線は成立したものの A1.Flex の在庫切れで起動せず。さくらのクラウドは upstream に CA provider が存在しないため**フォークに自作**し、5 クラウド目の全チェーン（CA がサーバを create → join → Pod 名付き flow 観測 → 自動削除）を成立させました。ノード自動供給の成立条件はクラウドごとに大きく異なります。
 - 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
