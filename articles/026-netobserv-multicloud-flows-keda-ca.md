@@ -184,6 +184,17 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 そもそも NetObserv が他の観測手段と何が違うのかは、1 つのパケットの構造にさかのぼると分かりやすいです。クラスタ内を流れる TCP セグメントは、下位から Ethernet(L2)・IP(L3)・TCP(L4)・ペイロード(L7)のヘッダが積み重なった構造をしています。通信の両端（送信元と宛先の IP）が初めて分かるのは L3、どのサービスかが分かるのは L4 のポートです。
 
+各層のヘッダには決まったオフセットで決まったフィールドが並んでいます。flow を一意に決める 5-tuple がどこに書かれているかまで下ると、次のようになります。
+
+| 層 | ヘッダ長 | 主なフィールド | 5-tuple との関係 |
+| --- | --- | --- | --- |
+| Ethernet (L2) | 14 B | 宛先/送信元 MAC、EtherType（`0x0800`=IPv4） | 次の層が IP だと分かる入口 |
+| IPv4 (L3) | 20 B〜（[RFC 791](https://www.rfc-editor.org/rfc/rfc791)） | IHL、Total Length、TTL、**Protocol**（6=TCP / 17=UDP）、**SrcAddr / DstAddr** | 5-tuple のうち 3 つ（src/dst IP、proto） |
+| TCP (L4) | 20 B〜（[RFC 9293](https://www.rfc-editor.org/rfc/rfc9293)） | **SrcPort / DstPort**、Seq/Ack、Flags（SYN/ACK/FIN…）、Window | 残り 2 つ（src/dst port） |
+| ペイロード (L7) | 可変 | HTTP リクエスト行など | flow 識別には使わない |
+
+本記事で観測した flow レコードと突き合わせると、`SrcAddr: 10.0.0.8` / `DstAddr: 10.0.3.150` は IPv4 ヘッダの送信元/宛先フィールド、`DstPort: 80` は TCP ヘッダの宛先ポート、`Proto: 6` は IPv4 ヘッダの Protocol フィールドの値（TCP）そのものです。つまり agent が出力する 1 行は、この 3 層のヘッダから 5 フィールドを抜き出して束ねたものにすぎません。eBPF プログラムは TC(tcx) フックで生のフレームを受け取り、EtherType → IPv4 の Protocol → TCP/UDP のポートと**オフセットをたどってこの 5 つを読み**、同じ 5-tuple のパケットを 1 つの flow レコードに集約して Bytes / Packets を加算します。
+
 ![1 パケットを L2/L3/L4/L7 に分解した図。flow を一意に決める 5 フィールド(src/dst IP, src/dst port, proto)を枠で強調](/images/026-netobserv-packet-map.png)
 
 同じパケットを、観測ツールごとに「どこを読むか」で重ねると差が一目で分かります。NetObserv は eBPF で L2〜L4 のヘッダを**その場でパース**して 5-tuple を組み立てます。一方 cAdvisor や node-exporter は veth や NIC の**バイトカウンタを読むだけ**で、パケットのヘッダを解釈しません。だから「合計いくら流れたか」しか出せず、通信相手は分かりません。metrics-server はそもそもネットワークを対象にせず CPU/メモリだけです。
