@@ -33,6 +33,8 @@ published: false
 
 ## 全体像
 
+このチェーンを 3 クラウドで同型に実行します。図は Azure を代表例にしたもので、AWS / GCP では nodeSelector（`cloud=aws` / `cloud=gcp`）とノード供給（VMSS → ASG / MIG）が置き換わるだけで、構造は同じです。
+
 ```mermaid
 flowchart TB
   subgraph SCHED["自動チェーン"]
