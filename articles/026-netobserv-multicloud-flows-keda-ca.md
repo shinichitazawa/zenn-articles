@@ -37,19 +37,25 @@ published: false
 
 ```mermaid
 flowchart TB
-  subgraph SCHED["自動チェーン"]
-    K["KEDA cron<br/>時刻窓で 0→1"] --> D["nginx Deployment<br/>(nodeSelector: cloud=azure / aws / gcp)"]
-    D -->|Pending| CA["Cluster Autoscaler"]
-    CA -->|"node group 0→1<br/>(VMSS / ASG / MIG)"| VM["クラウド側スポット VM"]
+  subgraph CHAIN["ノードと Pod を自動で起こす流れ(人手ゼロ)"]
+    K["KEDA cron<br/>設定した時刻窓に入る"] -->|"nginx を 0→1"| D["nginx Pod<br/>(クラウドノード指定なので Pending)"]
+    D -->|"Pending を検知"| CA["Cluster Autoscaler"]
+    CA -->|"node group 0→1"| VM["クラウドのスポット VM 起動<br/>(VMSS / ASG / MIG)"]
   end
-  subgraph OBS["観測"]
-    A1["agent@rpi0"] --- P["Prometheus"]
-    A2["agent@クラウドノード"] --- P
+  subgraph CLUSTER["k3s クラスタ(ノード間は Tailscale で接続)"]
+    subgraph RPI["rpi0 ノード(常駐・control plane)"]
+      C["client Pod(常駐)"]
+      A1["NetObserv agent"]
+    end
+    subgraph W["クラウドノード(0→1 で出現する worker)"]
+      N["nginx Pod"]
+      A2["NetObserv agent"]
+    end
   end
-  C["client(常駐)@rpi0"] -->|HTTP| N["nginx@クラウドノード"]
-  VM -.->|join| N
-  A1 -.観測.- C
-  A2 -.観測.- N
+  VM -->|"Tailscale 参加 → k3s join"| W
+  C -->|"HTTP(クラウド跨ぎ通信)"| N
+  A1 -->|"client 側で見た flow"| P["Prometheus"]
+  A2 -->|"nginx 側で見た flow"| P
 ```
 
 client は rpi0 側に常駐させておき、nginx が現れた瞬間からクラウド跨ぎの通信になります。client を「置いておく」のは固定の土台であり、通信の開始はチェーンの完成そのものが引き金です。
