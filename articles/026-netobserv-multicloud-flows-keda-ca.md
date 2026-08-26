@@ -33,20 +33,20 @@ published: false
 
 ## 全体像
 
-このチェーンを 3 クラウドで同型に実行します。図は Azure を代表例にしたもので、AWS / GCP では nodeSelector（`cloud=aws` / `cloud=gcp`）とノード供給（VMSS → ASG / MIG）が置き換わるだけで、構造は同じです。
+このチェーンを 3 クラウドで同型に実行します。ノード供給の実体だけがクラウドごとに異なり（Azure=VMSS / AWS=ASG / GCP=MIG）、KEDA の時刻窓をずらして順に流しました。具体的なタイムラインは次章に載せます。
 
 ```mermaid
 flowchart TB
   subgraph SCHED["自動チェーン"]
-    K["KEDA cron<br/>11:50 に 0→1"] --> D["nginx Deployment<br/>(nodeSelector: cloud=azure)"]
+    K["KEDA cron<br/>時刻窓で 0→1"] --> D["nginx Deployment<br/>(nodeSelector: cloud=azure / aws / gcp)"]
     D -->|Pending| CA["Cluster Autoscaler"]
-    CA -->|VMSS 0→1| VM["Azure スポット VM"]
+    CA -->|"node group 0→1<br/>(VMSS / ASG / MIG)"| VM["クラウド側スポット VM"]
   end
   subgraph OBS["観測"]
     A1["agent@rpi0"] --- P["Prometheus"]
-    A2["agent@Azure"] --- P
+    A2["agent@クラウドノード"] --- P
   end
-  C["client(常駐)@rpi0"] -->|HTTP| N["nginx@Azure"]
+  C["client(常駐)@rpi0"] -->|HTTP| N["nginx@クラウドノード"]
   VM -.->|join| N
   A1 -.観測.- C
   A2 -.観測.- N
