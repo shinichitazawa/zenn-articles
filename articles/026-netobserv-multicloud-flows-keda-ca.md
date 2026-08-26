@@ -23,7 +23,7 @@ published: false
 | control plane | Raspberry Pi 5（k3s `v1.36.2+k3s1`） |
 | worker (Azure) | VMSS スポット（`Standard_B2pls_v2`、2 vCPU / 4 GiB、arm64、通常時 0 台） |
 | worker (AWS) | ASG スポット（t4g 系、arm64、通常時 0 台） |
-| worker (GCP) | MIG スポット（`e2-micro`、1 GiB、amd64、通常時 0 台）※join まで |
+| worker (GCP) | MIG スポット（当初 `e2-micro`、後述の再検証では `e2-medium`、amd64、通常時 0 台） |
 | ノード間接続 | Tailscale（各ノードが tailnet に参加し、その IP を k3s の node-ip に使用） |
 | CNI | Cilium `v1.19.3`（kube-proxy replacement） |
 | 観測 | netobserv-ebpf-agent（`:main` タグ、direct-flp モード） |
@@ -79,7 +79,7 @@ spec:
         desiredReplicas: "1"
 ```
 
-起こされた Pod は `nodeSelector: cloud=azure` を要求し、該当ノードが 0 台なので Pending になります。ここから先は前回記事（Cluster Autoscaler 編）で構築した scale-from-0 がそのまま働きます。VMSS に付けた node-template タグ（[Azure provider の規約](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/azure/README.md)で `/` を `_` に置換したもの）を読んで、Cluster Autoscaler が「このグループなら賄える」と判断します。
+起こされた Pod は（Azure の例では）`nodeSelector: cloud=azure` を要求し、該当ノードが 0 台なので Pending になります。ここから先は前回記事（Cluster Autoscaler 編）で構築した scale-from-0 がそのまま働きます。VMSS に付けた node-template タグ（[Azure provider の規約](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/azure/README.md)で `/` を `_` に置換したもの）を読んで、Cluster Autoscaler が「このグループなら賄える」と判断します。
 
 実際のイベントとタイムラインです（筆者環境の記録。JST）。
 
