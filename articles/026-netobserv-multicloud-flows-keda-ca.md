@@ -109,7 +109,7 @@ Azure の 11:50 と 12:49 の間が空いているのは、後述する問題（
 
 ## NetObserv の配置 — direct-flp を全ノードへ
 
-NetObserv の標準構成は 2 段です。各ノードの eBPF agent が flow レコードを捕らえ、それを集約側の flowlogs-pipeline（FLP。flow の変換・エンリッチ・出力を担うパイプライン）へ送って処理します。[direct-flp モード](https://github.com/netobserv/netobserv-ebpf-agent/blob/main/docs/config.md)はこの FLP を agent プロセスに内蔵する構成で、collector を別に立てずに各ノード内で変換・出力まで完結します。ノードが増減するマルチクラウド構成では、集約点を持たないこの形が扱いやすいため、本記事では全ノードを direct-flp で動かします。
+NetObserv の基本構成では、各ノードの eBPF agent が捕らえた flow レコードを、GRPC や Kafka で別プロセスの flowlogs-pipeline（FLP。flow の変換・エンリッチ・出力を担うパイプライン）へ送って処理します（[agent の EXPORT 設定](https://github.com/netobserv/netobserv-ebpf-agent/blob/main/docs/config.md)に grpc / kafka / direct-flp 等の出力先が列挙されています）。[direct-flp モード](https://github.com/netobserv/netobserv-ebpf-agent/blob/main/docs/config.md)はこの FLP を agent プロセスに内蔵する構成で、collector を別に立てずに各ノード内で変換・出力まで完結します。ノードが増減するマルチクラウド構成では、集約点を持たないこの形が扱いやすいため、本記事では全ノードを direct-flp で動かします。
 
 > In `direct-flp` mode, flowlogs-pipeline is run internally from the agent, allowing more filtering, transformations and exporting options.
 >
@@ -312,20 +312,26 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 ### 2. Prometheus 出力は `encode` ステージに書く
 
-FLP のステージは ingest → transform → encode → write という分類で、Prometheus 出力は「書き出し」ではなく flow をメトリクスへ変換する `encode` に属します。`write` ステージに書くと、起動時に panic します（`getWriter` で落ちる様子がスタックトレースに出ます）。また設定に port を書いても実測では効かず、メトリクスサーバは既定の `:9090` で待ち受けました（起動ログに `StartServerAsync: addr = :9090` と出ます）。scrape 側の annotation はこの実効ポートに合わせます。
+FLP のステージは[公式 README の Architecture](https://github.com/netobserv/flowlogs-pipeline#architecture) で **ingest / transform / write / extract / encode の 5 種類**に分類されており、Prometheus 出力は「書き出し(write)」ではなく **encode** に属します。README の定義はこうです（2026-08 時点で取得）。
+
+> **encode** - make the data available in appropriate format (e.g. prometheus)
+>
+> — [flowlogs-pipeline: README](https://github.com/netobserv/flowlogs-pipeline#architecture)
+
+`write` ステージに `prom` を指定すると、writer の生成分岐（[`getWriter`](https://github.com/netobserv/flowlogs-pipeline/blob/16b05bbc2893/pkg/pipeline/pipeline_builder.go#L421)）に該当が無く、筆者環境では起動時に panic しました（実測）。ポートについては、[コード上は `port` が未指定(0)のとき `9090` にフォールバック](https://github.com/netobserv/flowlogs-pipeline/blob/16b05bbc2893/pkg/prometheus/prom_server.go#L91-L94)する実装です。筆者環境では設定した port が反映されず、この既定の `:9090` で待ち受けました（起動ログに `StartServerAsync: addr = :9090`。実測・2026-08）。scrape 側の annotation はこの実効ポートに合わせます。
 
 ```mermaid
 flowchart TB
-  subgraph FLP["FLP パイプライン(ステージは 4 分類)"]
-    I["① ingest<br/>agent から flow レコードを受け取る"] --> T["② transform<br/>加工(add_kubernetes など)"]
-    T --> E["③ encode(type: prom)<br/>flow をメトリクスへ変換し<br/>:9090 で公開(既定・設定の port は効かず)"]
-    T --> Wr["④ write(type: stdout / loki)<br/>flow レコードをそのまま書き出す"]
+  subgraph FLP["FLP パイプライン(公式のステージ分類は 5 種類。図は今回使った経路)"]
+    I["ingest<br/>agent から flow レコードを受け取る"] --> T["transform<br/>加工(add_kubernetes など)"]
+    T --> E["encode(type: prom)<br/>flow をメトリクスへ変換し<br/>:9090 で公開(port 未指定時の既定)"]
+    T --> Wr["write(type: stdout / loki)<br/>flow レコードをそのまま書き出す"]
   end
   P["Prometheus"] -.->|"annotation の port を :9090 に合わせて<br/>GET /metrics"| E
   NG["✗ prom を write ステージに書く<br/>→ 起動時に getWriter で panic"] -.-> Wr
 ```
 
-「Prometheus に出す＝書き出し(write)」と考えると④に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」③の仕事、というのがこの罠の正体です。
+「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、というのがこの罠の正体です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
 
 ### 3. ASG のタグが消えると CA は静かに沈黙する
 
