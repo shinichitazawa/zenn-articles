@@ -10,7 +10,7 @@ published: false
 
 EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent は CNI 非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
-本記事は 2026-05 時点の調査・検証に基づきます。
+本記事は 2026-05 時点の調査・検証に基づく。
 
 [^netobserv-readme]: https://github.com/netobserv/netobserv-ebpf-agent
 
@@ -33,7 +33,7 @@ NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワ�
 ## アーキテクチャ全体像
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph Node["各 Node (DaemonSet)"]
     Agent[eBPF Agent]
   end
@@ -50,12 +50,12 @@ flowchart TB
 データフロー:
 
 1. **eBPF Agent** が各ノードの ingress / egress フローをカーネルから収集
-2. (任意) Kafka を ingestion 層として挟みます。大規模クラスタで推奨
+2. (任意) Kafka を ingestion 層として挟む。大規模クラスタで推奨
 3. **flowlogs-pipeline (FLP)** がフローをエンリッチ、メトリクスを生成、複数バックエンドへ出力
 4. **Loki** / Prometheus / 他 (Kafka / OTLP / IPFIX) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
 
-FLP は単体で柔軟性が高いです。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
+FLP は単体で柔軟性が高い。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
 
 [^flp-readme]: https://github.com/netobserv/flowlogs-pipeline
 
@@ -123,11 +123,11 @@ export TARGET_PORT=...
 sudo -E bin/netobserv-ebpf-agent
 ```
 
-flow を gRPC で外部の collector (FLP など) に送る形です。
+flow を gRPC で外部の collector (FLP など) に送る形。
 
 ### (c) direct-flp モード
 
-最もシンプルです。FLP のロジックを agent 内に embed して stdout に直接出力する[^netobserv-readme]:
+最もシンプル。FLP のロジックを agent 内に embed して stdout に直接出力する[^netobserv-readme]:
 
 ```bash
 export FLP_CONFIG=$(cat flp-config.json)
@@ -148,15 +148,20 @@ sudo -E bin/netobserv-ebpf-agent
 }
 ```
 
-「`tcpdump` 的に試す」用途に最適です。本記事の検証もこのモードで行います。
+「`tcpdump` 的に試す」用途に最適。本記事の検証もこのモードで行う。
 
-## EKS で動かす際の注意点
+## EKS で動かすときの注意点
 
 README の Deployment test 節に重要な記述がある[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF
 
-つまり Amazon EKS の AMI は eBPF が無効化されて出荷されます。そのため AL2 / AL2023 ベースのノードグループでは追加設定が必要です。
+つまり Amazon EKS の AMI は eBPF が無効化されて出荷される。そのため AL2 / AL2023 ベースのノードグループでは追加設定が必要。
+
+| ノード OS | eBPF の出荷状態 | NetObserv を動かすには |
+|---|---|---|
+| EKS 標準 AMI (AL2 / AL2023) | 無効 | 自前 AMI を作って有効化 |
+| Bottlerocket | 有効 | 追加設定なし (README のテスト表で両方式 ✅) |
 
 README が示している選択肢:
 
@@ -183,6 +188,14 @@ ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go co
 
 これにより外部分析基盤 (BigQuery / ClickHouse / Snowflake 等) に流す経路が成立します。
 
+```mermaid
+flowchart TB
+  AG[eBPF agent] --> FLP[flowlogs-pipeline]
+  FLP --> PROM[Prometheus メトリクス<br/>Loki 無効でも継続]
+  FLP --> EXP[Kafka / IPFIX exporter<br/>ClickHouse 等の外部基盤へ]
+  FLP -.->|v1.4 から任意| LOKI[Loki + Console plugin<br/>無効化すると UI も無効]
+```
+
 ## NetObserv vs Cilium Hubble
 
 シリーズ 006 で Cilium Hubble に触れたので、選択軸を整理します。
@@ -198,14 +211,14 @@ ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go co
 
 ### 選択基準
 
-- 既に Cilium 採用 or 採用予定 → Hubble で十分です。NetObserv を別途入れる理由は薄い
+- 既に Cilium 採用 or 採用予定 → Hubble で十分。NetObserv を別途入れる理由は薄い
 - **CNI を変えず観測だけ追加したい** (例: VPC CNI on EKS の通常ノードグループ) → NetObserv が有力
 - **L7 プロトコル分析が重要** (HTTP レイテンシ、gRPC 観測) → Hubble の方が強い
 - **OpenShift 環境** → NetObserv 一択 (Red Hat 公式バックエンド)
 
 ## 実機検証
 
-ここからは手元で実際に動かしてみた記録です。2 つの環境で対比 することで、agent の動作要件 (特に BTF 出力) の意味を明らかにします。
+ここからは手元で実際に動かしてみた記録。2 つの環境で対比 することで、agent の動作要件 (特に BTF 出力) の意味を明らかにします。
 
 ### 環境 A: WSL2 + docker k3s (x86_64, BTF あり)
 
@@ -263,7 +276,7 @@ map[AgentIP:172.17.0.5 Bytes:1709 DstAddr:172.23.210.65 DstMac:02:42:b2:d9:d9:73
 - `DstAddr:10.42.0.x` → k3s の Pod CIDR
 - `Interfaces:[veth6947b921 cni0]` → k3s 内部 (flannel CNI 経由) のフロー
 
-Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が 完全に機能 していることを確認しました。
+Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が 完全に機能 していることを確認。
 
 ここまでで「READMEの主張通り、kernel 5.8+ + BTF + privileged で direct-flp モードが動く」を実証しました。
 
@@ -285,9 +298,9 @@ apply:
 kubectl apply -k netobserv/overlays/rasp
 ```
 
-`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule されないと意味がないためです。
+`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule されないと意味がないので。
 
-Pod は約 60 秒で Running 状態になりました (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
+Pod は約 60 秒で Running 状態になった (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
 
 ```text
 level=info  msg="starting NetObserv eBPF Agent [build version: main-6fc580a]"
@@ -300,7 +313,7 @@ level=fatal msg="can't instantiate NetObserv eBPF Agent"
          no BTF found for kernel version 6.6.62+rpt-rpi-2712: not supported"
 ```
 
-`no BTF found for kernel version 6.6.62+rpt-rpi-2712` が決定的なエラーです。
+`no BTF found for kernel version 6.6.62+rpt-rpi-2712` が決定的なエラー。
 
 裏付けとして、busybox Pod を Pi-1 上に直接スケジュールして `/sys/kernel/btf/vmlinux` を確認:
 
@@ -312,7 +325,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 
 `/sys/kernel/btf/vmlinux` 不在。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
 
-CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。これは Cilium も同じ依存を持ちます。
+CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。これは Cilium も同じ依存を持つ。
 
 ### 結論
 
@@ -323,14 +336,23 @@ CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct 
 
 ## EKS Hybrid Nodes との関係
 
-シリーズ本筋に戻して、NetObserv が Hybrid Nodes 検証でどこに収まるかを考える:
+シリーズ本筋に戻して、NetObserv が Hybrid Nodes 検証でどこに収まるかを考える。
 
-1. **Hybrid Nodes に Cilium を入れる前提** なら、Hubble で観測が完結します。NetObserv は不要
+| 状況 | 観測手段 |
+|---|---|
+| Hybrid Nodes に Cilium を入れる(本シリーズの前提) | Hubble で完結。NetObserv 不要 |
+| AWS 側マネージドノードグループ(VPC CNI)を混在 | そちらだけ NetObserv を入れる手がある |
+| NetObserv 投入ノードの OS | 自前 AMI を作らないなら Bottlerocket 限定 |
+| Raspberry Pi(Raspberry Pi OS) | BTF 不在で不可。Ubuntu 24.04 arm64 へ切替が前提 |
+
+整理すると:
+
+1. **Hybrid Nodes に Cilium を入れる前提** なら、Hubble で観測完結。NetObserv は不要
 2. **AWS 側 EKS のマネージドノードグループ (VPC CNI 利用) を mix する** 場合、そちらだけ NetObserv を入れて観測する手がある
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
 4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動きません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 
-Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分です。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢になります。
+Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢として記憶しておく。
 
 ## まとめ
 
@@ -343,7 +365,6 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 
 ## 参考リンク
 
-- 検証時の構成ファイル: [netobserv](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/netobserv)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 公式リソース:
 
 - [netobserv-ebpf-agent README](https://github.com/netobserv/netobserv-ebpf-agent)

@@ -38,21 +38,21 @@ published: false
 ## 全体アーキテクチャ
 
 ```mermaid
-flowchart TB
-  C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy: simple-shuffle]
-  subgraph MODELS[ollama 4 モデルへ各 25%]
-    M1[sarashina2.2-3b-instruct<br/>cpu-small]
-    M2[PLaMo 2 8B<br/>cpu-medium]
-    M3[Phi-4-mini 3.8B<br/>cpu-small]
-    M4[GPT-OSS-20B MoE<br/>cpu-medium]
-  end
-  L --> MODELS
-  P[Prometheus] -. trigger .-> KEDA[KEDA scale-to-zero]
-  KEDA -.-> MODELS
-  K[Karpenter / EKS Auto Mode] -. provision .-> MODELS
+flowchart LR
+  C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy:<br/>simple-shuffle]
+  L -- 25% --> M1[ollama: sarashina2.2-3b-instruct<br/>cpu-small node]
+  L -- 25% --> M2[ollama: PLaMo 2 8B<br/>cpu-medium node]
+  L -- 25% --> M3[ollama: Phi-4-mini 3.8B<br/>cpu-small node]
+  L -- 25% --> M4[ollama: GPT-OSS-20B MoE<br/>cpu-medium node]
   L -. callback .-> LF[Langfuse]
   LF -- batch 4-way 比較 --> J[LLM-as-judge<br/>Claude judge]
-  J -- score --> G[Grafana A/B dashboard]
+  J -- score --> G[Grafana<br/>A/B dashboard]
+  P[Prometheus] -. trigger .-> KEDA[KEDA<br/>scale-to-zero]
+  KEDA -.-> M1
+  KEDA -.-> M2
+  KEDA -.-> M3
+  KEDA -.-> M4
+  K[Karpenter<br/>EKS Auto Mode] -. provision .-> M1 & M2 & M3 & M4
 ```
 
 要点は次の通りです。
@@ -309,7 +309,7 @@ LiteLLM の IRSA + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま
 これと OSS self-host 月 $80 を比較すると、結論は次のようになります。
 
 - **データ主権を取らない前提**なら Nova Micro/Lite が安価です。1 億 token 級まで OSS self-host のコストに並ばれません
-- **データ主権を取る**なら OSS self-host が必須です。コスト固定 $80/月で量を気にせず使える
+- **データ主権を取る**なら OSS self-host が必須。コスト固定 $80/月で量を気にせず使える
 - **multimodal が必要** → Nova Lite/Pro が現実的、OSS は別途 vision モデルを追加検討
 - **日本語精度最優先** → Sarashina/PLaMo (OSS) vs Nova Pro の judge 直接比較で決める
 
@@ -330,16 +330,18 @@ OSS 4 候補と AWS Nova Pro の 5-way 比較を手動 trigger (将来は webhoo
 
 ```mermaid
 sequenceDiagram
-  participant U as CLI
-  participant AE as Argo Events<br/>(EventSource→Sensor)
-  participant TP as rest-proxy
-  participant TF as Temporal
-  participant W as judge worker
+  participant U as User/CLI
+  participant ES as Argo Events EventSource
+  participant SN as Argo Events Sensor
+  participant TP as temporal-rest-proxy
+  participant TF as Temporal Frontend
+  participant W as judge worker Pod
   participant LF as Langfuse
-  participant LL as Claude judge
+  participant LL as LiteLLM Claude judge
 
-  U->>AE: POST /judge {"days":7}
-  AE->>TP: POST /start {workflow_type, args}
+  U->>ES: POST /judge {"days":7}
+  ES->>SN: event 配信
+  SN->>TP: POST /start {workflow_type, args}
   TP->>TF: gRPC StartWorkflowExecution
   TF->>W: task assign
   W->>LF: GET traces?tags=llm-ab-test-v1
@@ -409,7 +411,7 @@ kubectl run -it --rm temporal-cli --image=temporalio/cli:latest --restart=Never 
     --input '{"days":7,"max_groups":50}'
 ```
 
-### なぜ Argo Events 経由なのか
+### Argo Events 経由にした理由
 
 外部 webhook が不要なら Temporal CLI 直接で済みますが、以下の理由で Argo Events 経由を採用します。
 
@@ -453,7 +455,7 @@ Bedrock 呼び出しは LiteLLM proxy 経由で行うため、本 Role に Bedro
 
 A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動判定までフルセットが揃います。
 
-## 重要な注意点
+## 実装で踏んだ問題
 
 検証中に踏んだ / 想定される問題を列挙します。
 
@@ -497,7 +499,6 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 
 ## 参考
 
-- 検証時の構成ファイル: [llm-ab-test](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/llm-ab-test) / [litellm](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/litellm) / [keda](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/keda)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`4df788b`](https://github.com/shinichitazawa/k8s-deploy-public/commit/4df788b) 時点。環境固有値はダミーに置換済み）
 - LiteLLM 公式 (proxy / router / configs): https://docs.litellm.ai/
 - LiteLLM OpenTelemetry integration: https://docs.litellm.ai/docs/observability/opentelemetry_integration
 - LiteLLM Langfuse integration: https://docs.litellm.ai/docs/observability/langfuse_integration

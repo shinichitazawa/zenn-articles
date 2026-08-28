@@ -163,6 +163,16 @@ Wait ノードの[公式ドキュメント](https://docs.n8n.io/integrations/bui
 
 Wait の再開 Webhook に `ignoreBots: true` を付けたところ、`curl` からのアクセスが **HTTP 403** になりました(実測)。ブラウザの User-Agent に変えると 200 で通り、実行が再開しました。
 
+```bash
+# 実測の再現(URL は伏せています)
+$ curl -s -o /dev/null -w '%{http_code}\n' "$RESUME_URL"
+403   # 既定の curl UA は bot 判定
+$ curl -s -o /dev/null -w '%{http_code}\n' -A "$BROWSER_UA" "$RESUME_URL"
+200   # ブラウザ相当の UA なら再開される
+$ curl -s -o /dev/null -w '%{http_code}\n' -A "$BROWSER_UA" "$RESUME_URL"
+409   # 2 回目は二重承認として拒否
+```
+
 リンクプリフェッチによる誤承認を防ぐには有効な設定ですが、**動作確認を curl でやると原因不明の 403 に見えます**。テスト時は UA を指定するか、この設定を一時的に外して確認してください。
 
 ちなみに、承認 URL に2回アクセスすると2回目は **HTTP 409** になりました。二重承認は n8n 側で防がれています。
@@ -170,6 +180,11 @@ Wait の再開 Webhook に `ignoreBots: true` を付けたところ、`curl` か
 ## 7. Wait のフォームは `fieldName` が効かない
 
 Wait を `resume: form` で使い、フォーム項目に `fieldName: 'decision'` を指定しました。しかし保存されたノード定義から `fieldName` が消えており、再開後の `$json.decision` は常に `null` でした(実測)。フォームの入力値は**ラベル名がキー**になります。
+
+| 書いた指定 | 期待した参照 | 実際の挙動 |
+|---|---|---|
+| `fieldName: 'decision'` | `$json.decision` | 保存時に `fieldName` が消え、常に `null` |
+| ラベル `承認しますか` のみ | — | `$json['承認しますか']` がキーになる |
 
 Webhook 再開(`resume: webhook`)に切り替え、クエリパラメータで判定を受け取る方式にしたところ安定しました。承認リンクをメールやチャットで送る運用とも噛み合います。
 
@@ -238,16 +253,29 @@ Atom フィードは同じリリースについて複数のエントリを返す
 
 n8n の Workflow SDK でコードからワークフローを作る場合の実測メモです。
 
-- **予約語と衝突する変数名が使えない**。`const merge = node({...})` は `'merge' is a reserved SDK function name` で弾かれます
+```text
+# const merge = node({...}) と書いたときの検証エラー(実測)
+'merge' is a reserved SDK function name
+```
+
+- **予約語と衝突する変数名が使えない**。`merge` のほか `node` / `trigger` など SDK の関数名は変数名にできません
 - **すべてのノードに `output`(サンプル出力)が必要**。後続ノードの式検証に使われます
 - **アロー関数が使えない**(Code ノード内の `jsCode` 文字列の中は可)
 - ノードのバージョンとパラメータ名の対応を必ず確認する。型定義を確認せずに書いたところ、`typeVersion: 3` のノードに旧版(v2.2)のパラメータ名を書いてしまい、**UI で開いた瞬間に値が捨てられる**という壊れ方をしました
 
 最後の点は特に厄介です。作成 API は通り、一見すると成功しているように見えます。ノードを追加する前に必ず型定義を確認してください。
 
-## 追記: その後の検証でさらに踏んだ落とし穴(2026-08-14)
+## 追記: その後の検証で踏んだ問題(2026-08-14)
 
 初稿のあと、脆弱性トリアージと「会議音声 → ToDo 抽出」の 2 本を追加で作りました。そこで新たに踏んだものを追記します。いずれも筆者環境での実測です。
+
+| # | 内容 | 種別 |
+|---|---|---|
+| 12 | HTTP Request は応答ヘッダを 5 分しか待てない | n8n の実装制約 |
+| 13 | Code ノードの日付計算は UTC でずれる | 実行環境 |
+| 14 | `executeOnce` は入力を先頭 1 件に切り詰める | 仕様の読み違え |
+| 15 | `ignoreBots` は「Mozilla/5.0」だけの UA も弾く | 6 の追補 |
+| 16 | モデルのコンテンツフィルタで出力が空になる | モデル側 |
 
 ## 12. HTTP Request は応答ヘッダを 5 分しか待てない
 
@@ -296,6 +324,13 @@ const y = next.getUTCFullYear();      // getter も UTC 側を使う
 
 未完了 ToDo を全件読んで分類する Code ノードに `executeOnce: true` を付けたところ、**2 件あるはずの集計が 1 件になりました**(実測)。
 
+```text
+# 実測時の入出力
+入力            : 2 items(ToDo A, ToDo B)
+executeOnce なし : $input.all() → [ToDo A, ToDo B](期待どおり)
+executeOnce あり : $input.all() → [ToDo A]      (先頭 1 件に切り詰め)
+```
+
 これは仕様どおりの動作です。[公式ドキュメント](https://docs.n8n.io/build/understand-workflows/workflow-components/work-with-nodes)は Execute Once をこう説明しています。
 
 > The node executes once, with data from the first item it receives. It doesn't process any extra items.
@@ -309,9 +344,17 @@ const y = next.getUTCFullYear();      // getter も UTC 側を使う
 
 ## 15. `ignoreBots` は「Mozilla/5.0」だけの UA も弾く
 
-6 節の追補です。`ignoreBots: true` の Webhook を `curl -A 'Mozilla/5.0'` で叩いたところ、それでも拒否されました(実測。応答は「Authorization data is wrong!」で、認証エラーのような文言ですが実体は bot 判定です)。完全なブラウザ UA 文字列(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...`)にすると通りました。
+6 節の追補です。`ignoreBots: true` の Webhook を `curl -A 'Mozilla/5.0'` で叩いたところ、それでも拒否されました(実測)。完全なブラウザ UA 文字列(`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...`)にすると通りました。
+
+```bash
+$ curl -s -A 'Mozilla/5.0' "$WEBHOOK_URL"
+{"code":403,"message":"Authorization data is wrong!"}
+# 認証エラーのような文言だが、実体は bot 判定
+```
 
 実ブラウザからの操作には影響しませんが、curl やスクリプトで動作確認する場合は UA を完全な形で渡す必要があります。エラー文言から原因にたどり着きにくいので、`ignoreBots` 付き Webhook が 403 を返したらまず UA を疑ってください。
+
+なお、この紛らわしいエラー文言は upstream へ報告済みです([n8n-io/n8n#36363](https://github.com/n8n-io/n8n/issues/36363)。Webhook ノードはコミュニティ PR を受け付けない方針のため、修正ブランチを添えた issue の形で提出しています)。
 
 ## 16. モデルのコンテンツフィルタで出力が空になる
 

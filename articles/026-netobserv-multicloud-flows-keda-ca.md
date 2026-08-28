@@ -100,7 +100,7 @@ spec:
 13:38 頃  Cluster Autoscaler が ASG 0→1、EC2 スポット起動
 13:41:59  client が AWS 側 nginx から HTTP 200
 
---- GCP（CA が使えないため代替経路。詳細は後述）---
+--- GCP（Cluster Autoscaler が使えないため代替経路。詳細は後述）---
 14:38:15  CronJob が keyless(WIF) で MIG 0→1 に resize
 14:42 頃  GCE VM が join（ただし e2-micro の資源不足で Ready を維持できず）
 ```
@@ -257,7 +257,7 @@ AWS / Azure の provider は自形式でない providerID を単に読み飛ば�
 
 なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（Cluster Autoscaler が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
 
-代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。
+代替として、GCP 用の Cluster Autoscaler のために構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。
 
 ### GCE provider をフォークして直す
 
@@ -277,7 +277,7 @@ func (gce *GceCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.N
 }
 ```
 
-`cluster-autoscaler-1.35.0` タグにこのパッチを当てて arm64 イメージをビルドし、実クラスタの CA-gcp を差し替えたところ、旧版が 1 ループ以内に落ちていた `could not create quotas tracker` の fatal が消え、メインループが安定して回るようになりました。ログには意図どおりのスキップが出ます。
+`cluster-autoscaler-1.35.0` タグにこのパッチを当てて arm64 イメージをビルドし、実クラスタの GCP 用 Cluster Autoscaler を差し替えたところ、旧版が 1 ループ以内に落ちていた `could not create quotas tracker` の fatal が消え、メインループが安定して回るようになりました。ログには意図どおりのスキップが出ます。
 
 ```text
 gce_cloud_provider.go:122] Node raspberrypi-0 has non-GCE providerID
