@@ -54,7 +54,7 @@ Cluster Autoscaler がノードとグループを識別するための規約を2
 - **providerID**: `sakuracloud://<zone>/<serverName>`。kubelet の `--provider-id` に相当する値で、サーバ名で一意化します。
 - **グループ所属タグ**: `ca-group-<nodeGroupName>`。作成するサーバにこのタグを付け、一覧時にグループを逆引きします。
 
-なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（パッケージも `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動）。PR はこの新方式に合わせています。
+なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（実装例: [civo provider の init()](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/civo/civo_cloud_provider.go#L39-L43)、束ねる側: [cloudprovider/router/](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/router)。パッケージも `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動。2026-08 時点の master）。PR はこの新方式に合わせています。
 
 ## ノード作成の API フロー(実測)
 

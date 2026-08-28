@@ -30,7 +30,9 @@ The AI model returned an empty response to the Structured Output Parser
 
 n8n はエラー説明で原因の候補を示してくれます。
 
-> This usually happens when the model runs out of tokens before it can generate the structured output. Try reducing the prompt length, increasing the model's max output tokens, or simplifying the output schema.
+> This usually happens when the model runs out of tokens before it can generate the structured output. Try reducing the prompt length, increasing the model's max output tokens, or simplifying the output schema. To continue the execution when this happens, change the 'On Error' parameter in the root node's settings.
+>
+> — [N8nStructuredOutputParser.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/utils/output_parsers/N8nStructuredOutputParser.ts)(2026-08 時点で取得)
 
 実際、**最大出力トークン数の指定漏れ**でした。AWS Bedrock Chat Model ノードのオプション `maxTokensToSample` は、upstream の実装で既定値が 2000 です。
 
@@ -206,7 +208,7 @@ Tailscale は識別ヘッダの仕様を公開しており、`Tailscale-User-Log
 
 ただし、そのまま認証として信頼するには条件があります。公式ドキュメントは次のように明記しています。
 
-> When you use the identity headers to authenticate to a backend service, it's best practice to only have the service listen on localhost. Otherwise, any user that can call your service directly (rather than with the Serve URL) could trivially provide their own values for these HTTP headers.
+> When you use the identity headers to authenticate to a backend service, it's best practice to only have the service listen on localhost. Otherwise, any user that can call your service directly (rather than with the Serve URL) could trivially provide their own values for these HTTP headers. By listening only on localhost, this limits tampering to only other services running on the Serve device, and not anyone on your LAN or tailnet.
 >
 > — [Tailscale Serve のヘッダ](https://tailscale.com/s/serve-headers)
 

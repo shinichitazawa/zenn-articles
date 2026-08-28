@@ -173,7 +173,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 
 3 つの設定画面を並べると、同じ「Chat Model」でも入力を求められるものがまったく違うことが一目で分かります。Bedrock は認証方式とモデルの出自、Vertex はプロジェクトとリージョン、Azure はデプロイ名です。
 
-型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に効いてきます。
+型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に効いてきます(筆者環境 n8n 2.33.3 での実測)。
 
 ```text
 ┌─ AWS Bedrock Chat Model ────────┐  ┌─ Google Vertex Chat Model ──────┐
@@ -201,7 +201,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 └─────────────────────────────────┘
 ```
 
-なお Bedrock の Authentication と Model Source は、資格情報を設定して初めて意味を持つ項目です。未設定のまま開くと Model 欄は「Set up credential to see options」のままで、モデル一覧も取得されません。
+なお Bedrock の Authentication と Model Source は、資格情報を設定して初めて意味を持つ項目です。未設定のまま開くと Model 欄は「Set up credential to see options」のままで、モデル一覧も取得されません(同じく筆者環境での実測)。
 
 Azure のノード定義では `model` パラメータの説明が次のようになっており、UI 上も「モデル名ではなくデプロイ名」であることが明示されています。
 

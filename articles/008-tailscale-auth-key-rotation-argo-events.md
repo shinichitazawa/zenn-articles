@@ -19,7 +19,7 @@ VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で�
 :::
 
 :::message
-本記事中の AWS account ID (`111111111111` / `222222222222`)、ドメイン (`webhooks.example.com`)、リソース名 (`myapp-*`) はすべて架空。実構成の名前を読み替えてください。
+本記事中の AWS account ID (`111111111111` / `123456789012`)、ドメイン (`webhooks.example.com`)、リソース名 (`myapp-*`) はすべて架空。実構成の名前を読み替えてください。
 :::
 
 :::message
@@ -69,7 +69,7 @@ flowchart LR
     S3[S3<br/>argo artifacts]
   end
 
-  subgraph KAJI[AWS — target account 222222222222]
+  subgraph KAJI[AWS — target account 123456789012]
     IAM2[IAM Role<br/>cross-account]
     SM3[Secrets Manager<br/>tailscale-auth]
     ASG[Auto Scaling Group<br/>bastion-asg]
@@ -391,7 +391,7 @@ spec:
       - name: triggered-by
         value: "(manual)"
       - name: cross-account-role-arn
-        value: "arn:aws:iam::222222222222:role/myapp-tailscale-rotator-cross-account"
+        value: "arn:aws:iam::123456789012:role/myapp-tailscale-rotator-cross-account"
       - name: target-secret-id
         value: "myapp/tailscale-auth"
       - name: target-asg-name
@@ -537,7 +537,7 @@ spec:
           "Sid": "AssumeCrossAccountRole",
           "Effect": "Allow",
           "Action": "sts:AssumeRole",
-          "Resource": "arn:aws:iam::222222222222:role/myapp-tailscale-rotator-cross-account"
+          "Resource": "arn:aws:iam::123456789012:role/myapp-tailscale-rotator-cross-account"
         },
         {
           "Sid": "ArgoArtifactRepository",

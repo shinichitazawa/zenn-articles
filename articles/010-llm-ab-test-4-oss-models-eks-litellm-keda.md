@@ -63,7 +63,7 @@ flowchart LR
 
 ## モデル選定 (ライセンス完全自由 + 多様性)
 
-ベンダーロックイン回避を厳格に取るなら Apache 2.0 / MIT のみに絞ります。Llama Community License は MAU 7 億超で要協議があるため除外、Gemma Terms は競合 AI 製品制限があるため除外、Mistral Research は非商用なので除外しています。
+ベンダーロックイン回避を厳格に取るなら Apache 2.0 / MIT のみに絞ります。[Llama Community License](https://www.llama.com/llama3_1/license/) は MAU 7 億超で要協議があるため除外、[Gemma Terms of Use](https://ai.google.dev/gemma/terms) は競合 AI 製品への利用制限があるため除外、[Mistral Research License](https://mistral.ai/static/licenses/MRL-0.1.md) は非商用なので除外しています(いずれも 2026-08 時点の各ライセンス原文を参照)。
 
 | # | モデル | 開発元 | License | サイズ | 強み |
 |---|---|---|---|---|---|
@@ -93,7 +93,7 @@ CPU 推論を成立させる鍵は次の 3 つです。
 2. **GGUF Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
 3. **MoE モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
 
-代表的な token/s (c7g.4xlarge Graviton3 で実測想定):
+代表的な token/s (c7g.4xlarge Graviton3 想定。**筆者未実測**で、モデルサイズと量子化形式からの見積りです):
 
 | モデル | サイズ | token/s |
 |---|---|---|
@@ -102,7 +102,7 @@ CPU 推論を成立させる鍵は次の 3 つです。
 | PLaMo 2 8B Q4_K_M | 8B | 15-25 |
 | GPT-OSS-20B MXFP4 | 21B/3.6B active | 15-25 |
 
-参考までに、人間の音読速度は約 5 tok/s、不快な「待たされ感」のボーダーが約 10 tok/s です。リアルタイム会話以外であれば CPU 推論で十分なケースが多いと言えます。
+参考までに、人間の音読速度が約 5 tok/s、不快な「待たされ感」のボーダーが約 10 tok/s というのが筆者の経験則です(一次資料による裏付けはありません)。リアルタイム会話以外であれば CPU 推論で十分なケースが多いと言えます。
 
 [vLLM CPU backend 公式](https://docs.vllm.ai/en/latest/getting_started/installation/cpu/) によると Graviton3 (ARM AArch64) はテスト済プラットフォームとして明記されています。
 
@@ -317,14 +317,14 @@ LiteLLM の IRSA + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま
 
 1. OSS 4 候補の A/B → `ab-router` (重み付きランダム) で 1-2 model に絞り込み
 2. Bedrock Nova 3 候補を別途同一プロンプトで呼び出し
-3. judge model (Claude Sonnet 4 など) で OSS winner と Bedrock 各候補を 5-way 比較
+3. judge model (Claude Sonnet 4 など) で OSS winner と Bedrock 各候補を横断比較
 4. 用途ごとに最適候補を決定 (Coding = OSS winner、RAG = Nova Pro 等の用途別マッピング)
 
 これにより「OSS が代替できる領域」と「Bedrock を残すべき領域」を明確に分離できます。
 
 ## 5-way 自動判定を Temporal workflow で回す
 
-OSS 4 候補と AWS Nova Pro の 5-way 比較を手動 trigger (将来は webhook) で走らせる Temporal workflow を立てます。judge ロジックを worker pod に閉じ込め、起動だけ webhook 経由で行う構成にします。
+OSS 4 候補と AWS Nova Pro の 5-way 比較(こちらは絞り込み前の OSS 4 model すべてを対象とする、実装済みの固定構成です)を手動 trigger (将来は webhook) で走らせる Temporal workflow を立てます。judge ロジックを worker pod に閉じ込め、起動だけ webhook 経由で行う構成にします。
 
 ### 全体フロー
 
@@ -509,6 +509,6 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 - llama.cpp (GGUF + NEON/SVE ほか): https://github.com/ggml-org/llama.cpp
 - vLLM CPU backend: https://docs.vllm.ai/en/latest/getting_started/installation/cpu/
 - Langfuse 公式: https://langfuse.com/docs
-- Sarashina2 model card: https://huggingface.co/sbintuitions/sarashina2-7b
+- Sarashina2.2 model card: https://huggingface.co/sbintuitions/sarashina2.2-3b-instruct-v0.1
 - Phi-4-mini model card: https://huggingface.co/microsoft/Phi-4-mini-instruct
-- GPT-OSS model card: https://huggingface.co/openai/gpt-oss-120b
+- GPT-OSS-20B model card: https://huggingface.co/openai/gpt-oss-20b

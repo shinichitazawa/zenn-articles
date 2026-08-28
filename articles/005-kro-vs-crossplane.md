@@ -86,7 +86,7 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 ### 特徴
 
 - **K8s ネイティブ** (CRD ベース、verifier/JIT 不要)
-- 軽量 (controller 100m CPU / 64Mi RAM で動く)
+- 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kro-run/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
 - ACK Controllers と組合せで AWS リソースも RGD で管理可能
 - v0.9.x、alpha API なので破壊的変更の可能性あり
 
@@ -132,7 +132,7 @@ spec:
 
 - **全クラウド対応** (AWS / GCP / Azure / Kubernetes / GitHub / etc.)
 - Composition で深い抽象化が可能
-- Pod が重い (1GB RAM+)、低リソース環境では負荷大
+- Pod が重い (目安 1GB RAM+。※筆者未検証の概算)、低リソース環境では負荷大
 - Provider のバージョン管理 (Crossplane core + Provider) が複雑
 
 ## 比較表
@@ -155,7 +155,7 @@ spec:
 
 | 条件 | Kro | Crossplane |
 |---|---|---|
-| RAM の限られた環境(エッジ / SBC) | ○ 軽量 | △ core + Provider で 1GB+ |
+| RAM の限られた環境(エッジ / SBC) | ○ 軽量 | △ core + Provider で 1GB+(※未検証の概算) |
 | AWS 中心(ACK と併用) | ○ | 過剰になりやすい |
 | 複数クラウドの統合管理 | 対象外 | ○ 本領 |
 | 学習コスト | K8s YAML の延長(RGD) | Composition の設計が必要 |
@@ -163,7 +163,7 @@ spec:
 
 Kro を選ぶ理由になりやすい点:
 
-1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費します。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
+1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane の multi-cloud は overkill
 3. **学習コスト**: Composition の設計は時間がかかる。RGD は K8s YAML の延長で書ける
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能

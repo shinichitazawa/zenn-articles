@@ -325,14 +325,14 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 
 `/sys/kernel/btf/vmlinux` 不在。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
 
-CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。これは Cilium も同じ依存を持つ。
+CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。Cilium も同様で、[Cilium の System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) は必要なカーネル設定の一覧に `CONFIG_DEBUG_INFO_BTF=y` を挙げています(2026-08 時点で取得)。
 
 ### 結論
 
 - **WSL2 + docker k3s (BTF あり)**: direct-flp モードでフロー JSON 取得 成功
 - **Pi k3s (Raspberry Pi OS, BTF なし)**: BPF object ロードで CO-RE relocation エラー → fatal
 
-「Raspberry Pi OS は BTF が既定で無効で、Ubuntu Server 24.04 LTS arm64 なら有効」というのは、公式ドキュメントの記述ではなく筆者が実機で確認した結果です（2026-05 時点）。Pi で本格運用したい場合は OS を Ubuntu Server 24.04 LTS arm64 に切り替えるか、Raspberry Pi OS の kernel を rebuild して BTF を有効化する必要があります。
+「Raspberry Pi OS は BTF が既定で無効」は筆者が実機で確認した結果です（2026-05 時点）。一方「Ubuntu Server 24.04 LTS arm64 なら有効」は本記事では未検証で、Ubuntu の汎用 kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効にしていることからの推測です（※未検証）。Pi で本格運用したい場合は OS を Ubuntu Server 24.04 LTS arm64 に切り替えるか、Raspberry Pi OS の kernel を rebuild して BTF を有効化する必要があります。
 
 ## EKS Hybrid Nodes との関係
 
