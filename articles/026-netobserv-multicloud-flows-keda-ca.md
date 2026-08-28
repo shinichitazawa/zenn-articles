@@ -314,6 +314,19 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 FLP のステージは ingest → transform → encode → write という分類で、Prometheus 出力は「書き出し」ではなく flow をメトリクスへ変換する `encode` に属します。`write` ステージに書くと、起動時に panic します（`getWriter` で落ちる様子がスタックトレースに出ます）。また設定に port を書いても実測では効かず、メトリクスサーバは既定の `:9090` で待ち受けました（起動ログに `StartServerAsync: addr = :9090` と出ます）。scrape 側の annotation はこの実効ポートに合わせます。
 
+```mermaid
+flowchart TB
+  subgraph FLP["FLP パイプライン(ステージは 4 分類)"]
+    I["① ingest<br/>agent から flow レコードを受け取る"] --> T["② transform<br/>加工(add_kubernetes など)"]
+    T --> E["③ encode(type: prom)<br/>flow をメトリクスへ変換し<br/>:9090 で公開(既定・設定の port は効かず)"]
+    T --> Wr["④ write(type: stdout / loki)<br/>flow レコードをそのまま書き出す"]
+  end
+  P["Prometheus"] -.->|"annotation の port を :9090 に合わせて<br/>GET /metrics"| E
+  NG["✗ prom を write ステージに書く<br/>→ 起動時に getWriter で panic"] -.-> Wr
+```
+
+「Prometheus に出す＝書き出し(write)」と考えると④に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」③の仕事、というのがこの罠の正体です。
+
 ### 3. ASG のタグが消えると CA は静かに沈黙する
 
 AWS 側で最初、CA が何の反応も示さなかった原因は、ASG から Cluster Autoscaler 用のタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。auto-discovery タグ 2 つ（`k8s.io/cluster-autoscaler/enabled` とクラスタ名）が無いと CA はグループを発見せず、scale-from-0 用の node-template タグ 3 つ（label 2 + taint 1）が無いと発見しても賄えると判断できません。どちらもエラーにはならず、単に何も起きないため気づきにくいです。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました。
