@@ -335,15 +335,42 @@ flowchart TB
 
 ### 3. ASG のタグが消えると Cluster Autoscaler は静かに沈黙する
 
-AWS 側で最初、Cluster Autoscaler が何の反応も示さなかった原因は、ASG から Cluster Autoscaler 用のタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。auto-discovery タグ 2 つ（`k8s.io/cluster-autoscaler/enabled` とクラスタ名）が無いと Cluster Autoscaler はグループを発見せず、scale-from-0 用の node-template タグ 3 つ（label 2 + taint 1）が無いと発見しても賄えると判断できません。どちらもエラーにはならず、単に何も起きないため気づきにくいです。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました。
+AWS 側で最初、Cluster Autoscaler が何の反応も示さなかった原因は、ASG に付けていたタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。Cluster Autoscaler は **ASG をタグで発見し、起動されるノードの姿もタグで知ります**（[AWS provider README](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/aws/README.md)）。筆者環境で必要だったのは次の 5 つです。
+
+| タグ | 役割 | 欠けたときの症状 |
+| --- | --- | --- |
+| `k8s.io/cluster-autoscaler/enabled` | auto-discovery（管理対象の目印） | グループ自体を**発見しない** |
+| `k8s.io/cluster-autoscaler/<クラスタ名>` | auto-discovery（対象クラスタの限定） | 同上 |
+| `.../node-template/label/cloud` | scale-from-0: 起動ノードに付く label の広告 | 発見はするが、Pending Pod の nodeSelector を「賄える」と**判断できない** |
+| `.../node-template/label/role` | 同上 | 同上 |
+| `.../node-template/taint/dedicated` | scale-from-0: 起動ノードに付く taint の広告 | 同上（toleration の突き合わせに失敗） |
+
+要点は、**どちらの欠落もエラーにならず「単に何も起きない」**ことです。発見しないので判断ログすら出ません。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました（筆者環境で実測・2026-08）。
 
 ### 4. IP をラベルにした flow メトリクスは Pod の入れ替えで分断される
 
-flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため、client Pod をローリング更新した瞬間に IP が変わり、**グラフ上は通信が止まったように見えました**（実際は新 IP の別系列として継続）。スポットの入れ替わりでも同じことが起きます。K8s 名（Pod 名や workload 名）で追いたい場合は、FLP の Kubernetes enrichment を有効にしてラベルを付け替える必要があります。direct-flp の素の flow は IP の世界だ、という当たり前の事実を、グラフの「偽の断絶」で体感しました。
+**症状**: client Pod をローリング更新した瞬間、グラフ上は通信が止まったように見えました。実際には止まっていません。
+
+**仕組み**: メトリクスを `SrcAddr`/`DstAddr`（IP）ラベルで集計していたため、Pod の入れ替えで IP が変わると、Prometheus 上は「旧 IP の系列が横ばいで終わり、新 IP の**別系列**が 0 から始まる」形になります。
+
+```text
+netobserv_node_flows_total{SrcAddr="10.0.0.8", ...}    ← 旧 client。ここで増加が止まる(断絶に見える)
+netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系列として増加を再開
+```
+
+スポットの入れ替わりでノード側の IP が変わっても同じことが起きます。
+
+**対処**: Pod 名や workload 名で連続して追いたい場合は、本文「Pod 名で見る」節の Kubernetes enrichment を有効にし、`SrcK8S_Name` などの K8s 名ラベルで集計します。direct-flp の素の flow は IP の世界である、という事実の帰結です。
 
 ### 5. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
 
-詰まったインスタンスを `az vmss delete-instances` で外から消したところ、ちょうど走っていた Cluster Autoscaler のリサイズ要求と競合して失敗が記録され、**ノードグループがスケールアップ backoff に入りました**。イベントには何も出ず、ログに `Node group azure-cil-vmss is not ready for scaleup - backoff` が出るだけなので気づきにくいです。Cluster Autoscaler が管理するリソースには外から触らないのが原則で、触ってしまった場合は backoff の解消（時間経過か Cluster Autoscaler の再起動）が要ります。
+起きたことを順に並べるとこうです（筆者環境で実測・2026-08）。
+
+1. 起動に失敗して詰まったインスタンスを、`az vmss delete-instances` で **Cluster Autoscaler の外から**削除した
+2. ちょうど走っていた Cluster Autoscaler 自身のリサイズ要求と競合し、その操作が「失敗」として記録された
+3. ノードグループが**スケールアップ backoff** 状態になり、以後しばらく増設要求そのものを止めた
+
+このとき Kubernetes のイベントには何も出ず、手掛かりは Cluster Autoscaler のログの `Node group azure-cil-vmss is not ready for scaleup - backoff` の一行だけでした。原則は「Cluster Autoscaler が管理するリソースには外から触らない」。触ってしまった場合、backoff の解消には時間経過を待つか Cluster Autoscaler を再起動します。
 
 ## まとめ
 
