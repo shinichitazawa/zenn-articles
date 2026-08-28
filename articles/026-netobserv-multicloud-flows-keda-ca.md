@@ -170,7 +170,7 @@ map[AgentIP:192.0.2.17 Bytes:1191 DstAddr:10.0.0.8 DstPort:47740 Interfaces:[lxc
     Packets:5 Proto:6 SrcAddr:10.0.3.150 ...]
 ```
 
-同一のクラウド跨ぎ通信について、要求側と応答側が別ノードの agent に現れています。CNI は Cilium のままで、NetObserv は CNI に依存せず TC(tcx) フックで観測しているため（[agent が TC/TCX フックに attach することは公式 README の権限要件にも明記](https://github.com/netobserv/netobserv-ebpf-agent/blob/4673df30518a/README.md)）、この構成でもそのまま動きます。
+同一のクラウド跨ぎ通信について、要求側と応答側が別ノードの agent に現れています。CNI(Container Network Interface。Pod のネットワーク接続を提供するプラグイン機構)は Cilium のままで、NetObserv は CNI に依存せず TC(tcx) フックで観測しているため（[agent が TC/TCX フックに attach することは公式 README の権限要件にも明記](https://github.com/netobserv/netobserv-ebpf-agent/blob/4673df30518a/README.md)）、この構成でもそのまま動きます。
 
 AWS でも同じ形の両側観測が取れました。累計カウンタを見ると、client(`10.0.0.102`) と AWS 側 nginx(`10.0.2.97`) のペアが**双方向 × 2 系列ずつ**（rpi0 の agent と EC2 の agent がそれぞれ独立に数えたもの）出ています。
 
@@ -326,9 +326,9 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 ## 検証で判明した注意点
 
-### 1. 包括 toleration の Pod が「死にかけノード」に吸着する
+### 1. 包括 toleration の Pod が「終了処理中のノード」に吸着する
 
-検証用 Pod に `tolerations: [{operator: Exists}]` を付けていたところ、**cordon（`node.kubernetes.io/unschedulable`）や NotReady の taint まで許容してしまい**、撤収中の死にかけノードへスケジュールされました。Pod は Pending にならないため、Cluster Autoscaler は「unschedulable な Pod なし」と判断してスケールアップしません。toleration は対象クラウドの dedicated taint だけに絞る必要があります（DaemonSet の全ノード配置とは要件が異なります）。
+検証用 Pod に `tolerations: [{operator: Exists}]` を付けていたところ、**cordon（`node.kubernetes.io/unschedulable`）や NotReady の taint まで許容してしまい**、撤収中のノードへスケジュールされました。Pod は Pending にならないため、Cluster Autoscaler は「unschedulable な Pod なし」と判断してスケールアップしません。toleration は対象クラウドの dedicated taint だけに絞る必要があります（DaemonSet の全ノード配置とは要件が異なります）。
 
 ### 2. Prometheus 出力は `encode` ステージに書く
 
@@ -351,7 +351,7 @@ flowchart TB
   NG["✗ prom を write ステージに書く<br/>→ 起動時に getWriter で panic"] -.-> Wr
 ```
 
-「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、というのがこの罠の正体です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
+「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、というのが勘違いしやすい点の正体です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
 
 ### 3. ASG のタグが消えると Cluster Autoscaler は静かに沈黙する
 
@@ -397,7 +397,7 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 - NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure・AWS・GCP の 3 クラウドについてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
 - GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした Cluster Autoscaler に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → Cluster Autoscaler scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
-- 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して Cluster Autoscaler が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
+- 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が終了処理中のノードに吸着して Cluster Autoscaler が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
 

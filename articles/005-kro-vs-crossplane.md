@@ -20,9 +20,9 @@ Kubernetes マニフェストを宣言的に管理していると、「複合リ
 
 Kustomize + ArgoCD で多数のアプリを deploy していると、以下の問題に直面します。
 
-1. **複合リソースの煩雑さ**: Web app 1 個を deploy するのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
+1. **複合リソースの煩雑さ**: Web app 1 個を deploy するのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA(IAM Roles for Service Accounts)の Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
 2. **values の重複**: Helm chart の overlay で同じ値を environment 毎に書き直す
-3. **AWS リソースの管理**: EKS Hybrid Nodes 移行後、IAM Role や S3 Bucket を K8s API で管理したくなる (Terraform から離れたい)
+3. **AWS リソースの管理**: EKS Hybrid Nodes 移行後、IAM Role や S3 Bucket を Kubernetes API で管理したくなる (Terraform から離れたい)。なお EKS Hybrid Nodes への移行は本シリーズ共通の前提で、詳細は別記事(`002-hybrid-vs-outposts-vs-anywhere`)で扱っています
 
 ```mermaid
 flowchart TB
@@ -38,7 +38,7 @@ flowchart TB
 
 ### 仕組み
 
-`ResourceGraphDefinition` (RGD) という CRD で「高レベル API」を定義し、内部で K8s リソース (or ACK Controller 経由で AWS リソース) を生成する:
+`ResourceGraphDefinition` (RGD) という CRD で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成する:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -85,7 +85,7 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 
 ### 特徴
 
-- **K8s ネイティブ** (CRD ベース、verifier/JIT 不要)
+- **Kubernetes ネイティブ** (CRD ベース、verifier/JIT 不要)
 - 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kro-run/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
 - ACK Controllers と組合せで AWS リソースも RGD で管理可能
 - v0.9.x、alpha API なので破壊的変更の可能性あり
@@ -106,7 +106,7 @@ helm install kro oci://registry.k8s.io/kro/charts/kro \
 
 ### 仕組み
 
-- **Provider** が各クラウド (AWS / GCP / Azure / GitHub / etc.) の API を CRD として K8s に橋渡しします
+- **Provider** が各クラウド (AWS / GCP / Azure / GitHub / etc.) の API を CRD として Kubernetes に橋渡しします
 - **Composition** で「複数 Provider リソースを束ねた抽象」を定義します
 - **Composite Resource (XR)** をユーザが apply します
 
@@ -126,7 +126,7 @@ spec:
   region: ap-northeast-1
 ```
 
-これが裏で AWS S3 Bucket + IAM Role + K8s Deployment を全部作ります。
+これが裏で AWS S3 Bucket + IAM Role + Kubernetes Deployment を全部作ります。
 
 ### 特徴
 
@@ -139,8 +139,8 @@ spec:
 
 | 観点 | Kro | Crossplane |
 |---|---|---|
-| 思想 | K8s ネイティブ RGD で複合リソースをバンドル | クラウド全体を K8s API 化 |
-| 対象 | K8s リソース + (ACK 経由で) AWS リソース | AWS / GCP / Azure / その他全部 |
+| 思想 | Kubernetes ネイティブ RGD で複合リソースをバンドル | クラウド全体を Kubernetes API 化 |
+| 対象 | Kubernetes リソース + (ACK 経由で) AWS リソース | AWS / GCP / Azure / その他全部 |
 | 重さ | 軽量 (100m CPU) | 重 (1GB+ RAM) |
 | API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
@@ -158,14 +158,14 @@ spec:
 | RAM の限られた環境(エッジ / SBC) | ○ 軽量 | △ core + Provider で 1GB+(※未検証の概算) |
 | AWS 中心(ACK と併用) | ○ | 過剰になりやすい |
 | 複数クラウドの統合管理 | 対象外 | ○ 本領 |
-| 学習コスト | K8s YAML の延長(RGD) | Composition の設計が必要 |
+| 学習コスト | Kubernetes YAML の延長(RGD) | Composition の設計が必要 |
 | クラウド以外のリソース(GitHub / Slack 等) | 対象外 | Provider があれば ○ |
 
 Kro を選ぶ理由になりやすい点:
 
 1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane の multi-cloud は overkill
-3. **学習コスト**: Composition の設計は時間がかかる。RGD は K8s YAML の延長で書ける
+3. **学習コスト**: Composition の設計は時間がかかる。RGD は Kubernetes YAML の延長で書ける
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
 
 逆に以下の場合は Crossplane が向く:
@@ -176,7 +176,7 @@ Kro を選ぶ理由になりやすい点:
 
 ## Kro RGD の実装例: IRSA Role
 
-EKS Hybrid Nodes 移行後、IRSA + ACK で IAM Role を K8s API で作る:
+EKS Hybrid Nodes 移行後、IRSA + ACK で IAM Role を Kubernetes API で作る:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -250,7 +250,7 @@ Q3. 複合リソースのバンドル抽象が欲しい ?
 
 ## まとめ
 
-- **Kro**: 軽量、K8s ネイティブ、低リソース 〜 中小規模に最適
+- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に最適
 - **Crossplane**: マルチクラウド、大規模、エコシステム成熟
 - **AWS 中心 + EKS Hybrid Nodes** の構成では Kro が有力
 

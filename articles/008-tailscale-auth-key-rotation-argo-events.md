@@ -10,7 +10,7 @@ published: false
 
 VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用の頭痛の種になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、忘れた瞬間に内部通信が落ちる。
 
-この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。
+この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。
 
 想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい人。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利く。
 
@@ -35,7 +35,7 @@ VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で�
 下記は構造を mermaid で表現したもの。アイコン入りの高解像度版が必要なら、同じ構造を drawio で書き起こして `File > Export as > PNG` (Border 10px, Zoom 200%) すれば差し替え可能。
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph TS[Tailscale Cloud]
     TSW[Webhook subscription<br/>nodeKeyExpiringInOneDay]
     TSO[OAuth client<br/>scope: auth_keys]
@@ -117,7 +117,7 @@ flowchart LR
 | Argo Events `EventBus` (NATS JetStream) | EventSource → Sensor のメッセージング |
 | Argo Events `Sensor` | event type と device 名で filter し、Argo Workflow を `argo` namespace に submit |
 | Argo `WorkflowTemplate` | `rotate.py` を実行する Pod を生成。public image `python:3.12-slim` + ConfigMap mount |
-| ServiceAccount + IRSA | OIDC trust で cross-account role を assume できる demo 側 IAM Role |
+| ServiceAccount + IRSA(IAM Roles for Service Accounts) | OIDC trust で cross-account role を assume できる demo 側 IAM Role |
 | Kro `IRSARole` instance | IAM Role 定義を高レベル CRD で記述、ACK iam-controller が AWS API を叩く |
 | External Secrets Operator | AWS Secrets Manager から OAuth credentials / Slack webhook を k8s Secret に sync[^2] |
 | Cross-account IAM Role | target account 側で Put/Get on Secrets Manager + StartInstanceRefresh on ASG を許可 |
@@ -257,7 +257,7 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 
 ### 運用上の注意点
 
-| 項目 | 推奨 / 罠 |
+| 項目 | 推奨 / 注意点 |
 |---|---|
 | replicas | 3 (デフォルト)。1 にすると JetStream cluster が組めず persistence の意味が薄れる |
 | PVC size | low-volume なら 10Gi で十分。logging 用途で event が多い namespace なら MaxBytes を計算して決める |
@@ -336,7 +336,7 @@ spec:
 - target は `argo` namespace の WorkflowTemplate。cross-namespace submit になるため、Sensor ServiceAccount が `argo` ns に対して `workflowtemplates:get` + `workflows:create` の RBAC を持つ必要がある (後述)
 - `body.0.data.deviceName` で配列先頭要素を triggered-by parameter に注入し、Workflow ログから「どの device 由来か」を追える
 
-## cross-namespace RBAC の罠
+## cross-namespace RBAC の注意点
 
 Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-ns RBAC を、`argo-events` overlay の kustomization 配下に置くと事故る。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-ns 効果が消える。
 
@@ -606,7 +606,7 @@ spec:
 
 ## 実装で踏んだ問題
 
-| 罠 | 症状 | 対策 |
+| 注意点 | 症状 | 対策 |
 |---|---|---|
 | webhook payload が配列 | filter が常に false | `body.#.type` で配列要素を展開 |
 | cross-ns RBAC が overlay に namespace 上書き | Sensor が WT を get できず submit 失敗 | RBAC を target ns の overlay に移動 |

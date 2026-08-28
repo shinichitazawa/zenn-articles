@@ -38,7 +38,7 @@ published: false
 ## 全体アーキテクチャ
 
 ```mermaid
-flowchart LR
+flowchart TB
   C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy:<br/>simple-shuffle]
   L -- 25% --> M1[ollama: sarashina2.2-3b-instruct<br/>cpu-small node]
   L -- 25% --> M2[ollama: PLaMo 2 8B<br/>cpu-medium node]
@@ -91,7 +91,7 @@ CPU 推論を成立させる鍵は次の 3 つです。
 
 1. **ハードウェア行列演算命令**の活用 — [llama.cpp 公式](https://github.com/ggml-org/llama.cpp) は AVX/AVX2/AVX-512/AMX(Intel) と ARM NEON を網羅しています。本記事の Graviton3 は Arm なので効くのは NEON / SVE です（AMX は Intel 専用で Graviton には存在しません）
 2. **GGUF Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
-3. **MoE モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
+3. **MoE(Mixture of Experts)モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
 
 代表的な token/s (c7g.4xlarge Graviton3 想定。**筆者未実測**で、モデルサイズと量子化形式からの見積りです):
 
@@ -293,7 +293,7 @@ OSS 4 モデル間の比較だけでは「OSS で本当に商用 API を代替�
     aws_region_name: ap-northeast-1
 ```
 
-LiteLLM の IRSA + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま流用するため、追加の認証は不要です。
+LiteLLM の IRSA(IAM Roles for Service Accounts) + VPC Endpoint で Bedrock を呼ぶ既存設定をそのまま流用するため、追加の認証は不要です。
 
 ### コスト比較 (Bedrock Nova vs OSS self-host)
 

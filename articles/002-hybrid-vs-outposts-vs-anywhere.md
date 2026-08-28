@@ -22,6 +22,8 @@ AWS が提供する「オンプレで Kubernetes」の選択肢は、EKS Hybrid 
 
 ## 比較表
 
+表中の CNI は Container Network Interface(Pod のネットワーク接続を提供するプラグイン機構)、DDIL は Disconnected, Denied, Intermittent, Limited(切断・拒否・断続・制限帯域といった通信環境)の略です。
+
 | 観点 | EKS Hybrid Nodes | EKS on Outposts | EKS Anywhere |
 |---|---|---|---|
 | ハードウェア | 顧客所有の任意の物理/仮想マシン(x86 / ARM) | AWS 所有の Outposts ラックを顧客拠点に設置 | 顧客所有(vSphere / ベアメタル / Nutanix / Snow) |

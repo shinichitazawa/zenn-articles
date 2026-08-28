@@ -35,7 +35,7 @@ flowchart TB
 
 ## eBPF flow でこの粒度が見える理由
 
-NetObserv の eBPF agent は、各 Pod の仮想 NIC(veth。Cilium 環境では `lxc...`)に TC(tcx)フックで eBPF プログラムを載せ、その NIC を通過するパケットの L3/L4 メタデータを取り出します。取得できるのは送信元/宛先 IP、送信元/宛先ポート、プロトコル番号、バイト/パケット数、TCP の RTT などで、さらに Kubernetes のメタデータ(namespace / Pod 名 / Owner)で enrich されます。
+NetObserv の eBPF agent は、各 Pod の仮想 NIC(veth。Cilium 環境では `lxc...`)に TC(Linux Traffic Control)の tcx フックで eBPF プログラムを載せ、その NIC を通過するパケットの L3/L4 メタデータを取り出します。取得できるのは送信元/宛先 IP、送信元/宛先ポート、プロトコル番号、バイト/パケット数、TCP の RTT などで、さらに Kubernetes のメタデータ(namespace / Pod 名 / Owner)で enrich されます。
 
 | 観測手段 | 分かること | 通信相手と宛先ポート |
 |---|---|---|
@@ -115,7 +115,7 @@ STUN と並行して、Tailscale はルータに恒久的なポートマッピ�
 >
 > — [How NAT traversal works](https://tailscale.com/blog/how-nat-traversal-works)
 
-観測では UDP 239.255.255.250:1900 が出ていました。これは SSDP マルチキャストで、UPnP-IGD がゲートウェイを探索する際の宛先です。つまり公式が挙げる UPnP-IGD の探索段階が、そのまま flow に現れています。
+観測では UDP 239.255.255.250:1900 が出ていました。これは SSDP(Simple Service Discovery Protocol)のマルチキャストで、UPnP-IGD(Universal Plug and Play の Internet Gateway Device プロトコル。ルータにポート開放を依頼する仕組み)がゲートウェイを探索する際の宛先です。つまり公式が挙げる UPnP-IGD の探索段階が、そのまま flow に現れています。
 
 ### 4. DERP リレー(TCP 443、暗号化 WireGuard の中継)
 
@@ -182,7 +182,7 @@ enrich された内部通信は、そのまま可視化にも使えます。NetO
 
 ![NetObserv の flow から作成した内部依存グラフの Grafana 表示例](/images/028-netobserv-grafana-nodegraph.png)
 
-*線の太さが流量、赤い線が再送や drop の発生を表します。ハブになっている `raspberrypi-0`(コントロールプレーンノード)から各ワークロードへ通信が広がる構造が読み取れます。K8s の Owner 名で識別できる内部通信がノードになる一方、本記事で追った DERP のような外部エンドポイントは K8s 識別子を持たないため、このグラフには名前付きノードとして現れません。だからこそ相手の IP:ポートは、集約済みのグラフではなく生の flow レコードから読み取りました。*
+*線の太さが流量、赤い線が再送や drop の発生を表します。ハブになっている `raspberrypi-0`(Kubernetes 側のコントロールプレーンノード)から各ワークロードへ通信が広がる構造が読み取れます。K8s の Owner 名で識別できる内部通信がノードになる一方、本記事で追った DERP のような外部エンドポイントは K8s 識別子を持たないため、このグラフには名前付きノードとして現れません。だからこそ相手の IP:ポートは、集約済みのグラフではなく生の flow レコードから読み取りました。*
 
 この「メタデータは観測できるが、暗号化されたペイロードは観測できない」という切り分けは、WireGuard と DERP の設計に由来します。DERP サーバ自身も[暗号化済みのトラフィックをそのまま転送するだけで中身を復号できません](https://tailscale.com/kb/1232/derp-servers)。監視の観点でいえば、通信の有無・相手・通信量は把握できる一方で、通信内容は暗号化によって保護されたままになります。
 

@@ -101,7 +101,7 @@ Raspberry Pi で素直に対応マトリクスに乗せるなら、Raspberry Pi 
 
 ### 2. Cilium の kernel 要件
 
-Cilium の eBPF データパスには新しめの kernel と BTF が要ります。[Cilium System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) は最小要件を次のように定めています。
+Cilium の eBPF データパスには新しめの kernel と BTF(BPF Type Format。カーネルが構造体レイアウトを公開する型情報で、CO-RE=Compile Once – Run Everywhere 方式の eBPF プログラムがカーネル差分を吸収するために必要)が要ります。[Cilium System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) は最小要件を次のように定めています。
 
 > Linux kernel >= 5.10 or equivalent (e.g., 4.18 on RHEL 8.10)
 
@@ -145,7 +145,7 @@ kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、B
 Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.
 ```
 
-この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、ARMv8.2 準拠かつ Cryptography Extension 付き（ARMv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。回避策として kube-proxy add-on v1.30 を使い続ける方法が案内されていましたが、これは 2026 年 7 月に延長サポート終了しているため、現時点では upstream の custom kube-proxy image を使う選択肢が残ります。
+この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、Armv8.2 準拠かつ Cryptography Extension 付き（Armv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。回避策として kube-proxy add-on v1.30 を使い続ける方法が案内されていましたが、これは 2026 年 7 月に延長サポート終了しているため、現時点では upstream の custom kube-proxy image を使う選択肢が残ります。
 
 これは CPU の命令セット世代の問題で、OS や kernel をいくら新しくしても直らません。なぜなら、無い命令はソフトウェアでは生やせないからです。
 
@@ -177,7 +177,7 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 
 ## 回避策(ハード買い替え以外)
 
-「Pi 3 / Pi 4 だから詰み」かというと、必ずしもそうではありません。Armv8.2-A を要求してくるのは多くの場合「特定イメージのビルド条件」なので、迂回路があります。
+「Pi 3 / Pi 4 では対応不可能」かというと、必ずしもそうではありません。Armv8.2-A を要求してくるのは多くの場合「特定イメージのビルド条件」なので、迂回路があります。
 
 | 回避策 | 仕組み | 注意 |
 |---|---|---|

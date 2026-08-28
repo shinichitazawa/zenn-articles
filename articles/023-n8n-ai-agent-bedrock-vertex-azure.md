@@ -48,7 +48,7 @@ Memory と Tool はプロバイダに依存しないため、プロバイダを�
 
 ### AWS Bedrock
 
-n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/builtin/credentials/aws)あります。アクセスキーを使う AWS (IAM) と、AWS STS でロールを引き受ける AWS (Assume Role) です。後者のフィールドは Region / Role ARN / External ID / Role Session Name で、STS を呼ぶ側の資格情報として Use System Credentials(環境からの自動探索)を選べます。
+n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/builtin/credentials/aws)あります。アクセスキーを使う AWS (IAM) と、AWS STS(Security Token Service)でロールを引き受ける AWS (Assume Role) です。後者のフィールドは Region / Role ARN / External ID(渡したロールを意図しない第三者が流用する confused deputy 問題への対策として、信頼ポリシー側と突き合わせる値)/ Role Session Name で、STS を呼ぶ側の資格情報として Use System Credentials(環境からの自動探索)を選べます。
 
 実際の入力画面が次です。**Use System Credentials を有効にすると、アクセスキーの入力欄自体が現れません**。
 
@@ -59,7 +59,7 @@ n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/built
 この「自動探索」の中身が重要です。同ドキュメントによると、n8n は以下の順で資格情報を探し、最初に取得できたものを使います。
 
 1. 環境変数(`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`、任意で `AWS_SESSION_TOKEN`)
-2. **EKS IRSA**(`AWS_ROLE_ARN` と `AWS_WEB_IDENTITY_TOKEN_FILE`)
+2. **EKS IRSA**(IAM Roles for Service Accounts。`AWS_ROLE_ARN` と `AWS_WEB_IDENTITY_TOKEN_FILE`)
 3. EKS Pod Identity(`AWS_CONTAINER_CREDENTIALS_FULL_URI`)
 4. ECS / Fargate(`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`)
 5. EC2 インスタンスプロファイル(IMDSv2 経由)
@@ -175,31 +175,13 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 
 型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に効いてきます(筆者環境 n8n 2.33.3 での実測)。
 
-```text
-┌─ AWS Bedrock Chat Model ────────┐  ┌─ Google Vertex Chat Model ──────┐
-│ Credential to connect with      │  │ Credential to connect with      │
-│   └ AWS (IAM) / AWS (AssumeRole)│  │   └ Google Service Account      │
-│ Authentication                  │  │ Project ID          [list / ID] │
-│   └ iam | assumeRole            │  │ Model Name    gemini-2.5-flash  │
-│ Model Source                    │  │ Region                          │
-│   └ on-demand | inferenceProfile│  │   └ Default | Global | EU | US  │
-│ Model                           │  │ Options                         │
-│   └ 一覧から選択(接頭辞つき)  │  │   └ maxOutputTokens / topK …    │
-│ Options                         │  │                                 │
-│   └ maxTokens / guardrails …    │  │                                 │
-└─────────────────────────────────┘  └─────────────────────────────────┘
-
-┌─ Azure OpenAI Chat Model ───────┐
-│ Credential                      │
-│   └ Azure OpenAI API            │
-│     | Azure Entra ID (OAuth2)   │
-│ Model (Deployment) Name         │
-│   └ ★デプロイ名を入れる★       │
-│      (例: my-gpt4o-deployment)  │
-│ Options                         │
-│   └ maxTokens / responseFormat …│
-└─────────────────────────────────┘
-```
+| 項目 | AWS Bedrock Chat Model | Google Vertex Chat Model | Azure OpenAI Chat Model |
+|---|---|---|---|
+| Credential | AWS (IAM) / AWS (AssumeRole) | Google Service Account | Azure OpenAI API / Azure Entra ID (OAuth2) |
+| Authentication | iam / assumeRole | — | — |
+| Model Source | on-demand / inferenceProfile | — | — |
+| Model の指定 | 一覧から選択(接頭辞つき) | Model Name を直接入力(例: gemini-2.5-flash) | **Model (Deployment) Name = デプロイ名**(例: my-gpt4o-deployment) |
+| その他 | Options(maxTokens / guardrails …) | Project ID / Region(Default・Global・EU・US)/ Options(maxOutputTokens / topK …) | Options(maxTokens / responseFormat …) |
 
 なお Bedrock の Authentication と Model Source は、資格情報を設定して初めて意味を持つ項目です。未設定のまま開くと Model 欄は「Set up credential to see options」のままで、モデル一覧も取得されません(同じく筆者環境での実測)。
 

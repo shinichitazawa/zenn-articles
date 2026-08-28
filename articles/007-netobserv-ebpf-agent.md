@@ -33,7 +33,7 @@ NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワ�
 ## アーキテクチャ全体像
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph Node["各 Node (DaemonSet)"]
     Agent[eBPF Agent]
   end
@@ -336,7 +336,7 @@ CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct 
 
 ## EKS Hybrid Nodes との関係
 
-シリーズ本筋に戻して、NetObserv が Hybrid Nodes 検証でどこに収まるかを考える。
+シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能)に戻して、NetObserv がこの検証でどこに収まるかを考える。
 
 | 状況 | 観測手段 |
 |---|---|
@@ -357,7 +357,7 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 ## まとめ
 
 - NetObserv eBPF Agent は CNI 非依存 の eBPF フロー観測 sensor[^netobserv-readme]
-- アーキテクチャ: Agent (DaemonSet) → Kafka (任意) → FLP → Loki / Prometheus / 任意の sink
+- アーキテクチャ: Agent (DaemonSet) → Kafka (任意) → FLP (flowlogs-pipeline) → Loki / Prometheus / 任意の sink
 - v1.4 以降は Loki 必須ではない、Kafka 経由で任意の分析基盤に流せる[^no-loki-blog]
 - EKS では Bottlerocket なら動く、AL 系は要 eBPF 有効化[^netobserv-readme]
 - Cilium Hubble との使い分け: Cilium 採用なら Hubble、CNI 変えたくないなら NetObserv

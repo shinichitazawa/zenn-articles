@@ -29,7 +29,7 @@ published: false
 ## 全体構成
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph クラスタ内
     W[Whisper<br/>faster-whisper small<br/>CPU int8]
     N[n8n]
@@ -79,7 +79,7 @@ flowchart TB
 
 要点は次の3つです。
 
-- **モデルキャッシュを PVC に置く**。small モデルは初回に約 462MB をダウンロードするため(実測)、Pod 再起動のたびに落とし直さないよう永続化する
+- **モデルキャッシュを PVC(PersistentVolumeClaim)に置く**。small モデルは初回に約 462MB をダウンロードするため(実測)、Pod 再起動のたびに落とし直さないよう永続化する
 - **ClusterIP のみで公開しない**。音声とその文字起こしを外に出さないため、Ingress を付けず n8n からのみ到達させる
 - **リソース制限を慎重に決める**。ここで2回事故を起こしました(後述)
 
@@ -180,7 +180,7 @@ flowchart TB
 対処として、Whisper の Pod に**非同期の受付シム**(FastAPI 約 40 行)を同居させました。受付は即座に `job_id` を返し、裏で `/asr` を呼んで結果をファイルに保存、別エンドポイントで取得できるようにします。n8n 側は次のループになります。
 
 ```mermaid
-flowchart LR
+flowchart TB
   S[投入 POST /jobs<br/>即応答] --> W[Wait 30秒]
   W --> P[GET /jobs/id<br/>即応答]
   P --> C{status}
