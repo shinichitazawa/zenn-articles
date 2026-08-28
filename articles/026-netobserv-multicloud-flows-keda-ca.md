@@ -194,7 +194,7 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 | 層 | ヘッダ長 | 主なフィールド | 5-tuple との関係 |
 | --- | --- | --- | --- |
-| Ethernet (L2) | 14 B | 宛先/送信元 MAC、EtherType（`0x0800`=IPv4） | 次の層が IP だと分かる入口 |
+| Ethernet (L2) | 14 B | 宛先/送信元 MAC (6+6 B)、EtherType (2 B。`0x0800`=IPv4は [IANA の割当](https://www.iana.org/assignments/ieee-802-numbers/ieee-802-numbers.xhtml)) | 次の層が IP だと分かる入口 |
 | IPv4 (L3) | 20 B〜（[RFC 791](https://www.rfc-editor.org/rfc/rfc791)） | IHL、Total Length、TTL、**Protocol**（6=TCP / 17=UDP）、**SrcAddr / DstAddr** | 5-tuple のうち 3 つ（src/dst IP、proto） |
 | TCP (L4) | 20 B〜（[RFC 9293](https://www.rfc-editor.org/rfc/rfc9293)） | **SrcPort / DstPort**、Seq/Ack、Flags（SYN/ACK/FIN…）、Window | 残り 2 つ（src/dst port） |
 | ペイロード (L7) | 可変 | HTTP リクエスト行など | flow 識別には使わない |
