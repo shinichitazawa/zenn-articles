@@ -201,6 +201,20 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 
 本記事で観測した flow レコードと突き合わせると、`SrcAddr: 10.0.0.8` / `DstAddr: 10.0.3.150` は IPv4 ヘッダの送信元/宛先フィールド、`DstPort: 80` は TCP ヘッダの宛先ポート、`Proto: 6` は IPv4 ヘッダの Protocol フィールドの値（TCP）そのものです。つまり agent が出力する 1 行は、この 3 層のヘッダから 5 フィールドを抜き出して束ねたものにすぎません。eBPF プログラムは TC(tcx) フックで生のフレームを受け取り、EtherType → IPv4 の Protocol → TCP/UDP のポートと**オフセットをたどってこの 5 つを読み**、同じ 5-tuple のパケットを 1 つの flow レコードに集約して Bytes / Packets を加算します。
 
+ここで言う「フック」は、**カーネル内のパケット通過点に、実行したい関数(eBPF プログラム)を登録できる場所**のことです。TC(tcx) はネットワークデバイスの送受信パス上にあるフックで、Pod の veth をパケットが通過するたびに、カーネルが登録済みのプログラムを**その場で同期的に呼び、通過中のパケットそのものを引数として渡します**。コピーやミラーポートではなく、キャプチャ(pcap のような全量保存)でもありません。プログラムはヘッダを読んでカーネル内の map に加算するだけで即座に返り、パケットは何事もなく宛先へ流れていきます。
+
+```mermaid
+flowchart TB
+  PA["client Pod のプロセスが送信"] --> V["Pod の veth をパケットが通過"]
+  V --> H["TC(tcx) フック地点<br/>= この通過点に登録された eBPF プログラムを<br/>カーネルがその場で実行する場所"]
+  H -->|"通過中のパケットを引数に実行"| PROG["NetObserv の eBPF プログラム<br/>L2-L4 ヘッダだけを読む(ペイロードは見ない)"]
+  H --> PASS["パケット自体はそのまま宛先へ<br/>(コピーもキャプチャもしない)"]
+  PROG --> MAP["カーネル内の flow map<br/>5-tuple ごとに Bytes / Packets を加算"]
+  MAP --> AG["agent(ユーザ空間)が定期的に回収<br/>→ flow レコードとして出力"]
+```
+
+つまり「全パケットに触れているのにキャプチャではない」のが eBPF フックの性質で、パケット 1 つあたりの仕事は「ヘッダを読んで数える」だけに絞られています。フックの種類と仕組みの一次資料は [Cilium の BPF リファレンスガイド(tc プログラムの解説)](https://docs.cilium.io/en/stable/reference-guides/bpf/progtypes/) にあります。
+
 ![1 パケットを L2/L3/L4/L7 に分解した図。flow を一意に決める 5 フィールド(src/dst IP, src/dst port, proto)を枠で強調](/images/026-netobserv-packet-map.png)
 
 同じパケットを、観測ツールごとに「どこを読むか」で重ねると差が一目で分かります。NetObserv は eBPF で L2〜L4 のヘッダを**その場でパース**して 5-tuple を組み立てます。一方 cAdvisor や node-exporter は veth や NIC の**バイトカウンタを読むだけ**で、パケットのヘッダを解釈しません。だから「合計いくら流れたか」しか出せず、通信相手は分かりません。metrics-server はそもそもネットワークを対象にせず CPU/メモリだけです。
