@@ -170,7 +170,7 @@ map[AgentIP:192.0.2.17 Bytes:1191 DstAddr:10.0.0.8 DstPort:47740 Interfaces:[lxc
     Packets:5 Proto:6 SrcAddr:10.0.3.150 ...]
 ```
 
-同一のクラウド跨ぎ通信について、要求側と応答側が別ノードの agent に現れています。CNI は Cilium のままで、NetObserv は CNI に依存せず TC(tcx) フックで観測しているため、この構成でもそのまま動きます。
+同一のクラウド跨ぎ通信について、要求側と応答側が別ノードの agent に現れています。CNI は Cilium のままで、NetObserv は CNI に依存せず TC(tcx) フックで観測しているため（[agent が TC/TCX フックに attach することは公式 README の権限要件にも明記](https://github.com/netobserv/netobserv-ebpf-agent/blob/4673df30518a/README.md)）、この構成でもそのまま動きます。
 
 AWS でも同じ形の両側観測が取れました。累計カウンタを見ると、client(`10.0.0.102`) と AWS 側 nginx(`10.0.2.97`) のペアが**双方向 × 2 系列ずつ**（rpi0 の agent と EC2 の agent がそれぞれ独立に数えたもの）出ています。
 
