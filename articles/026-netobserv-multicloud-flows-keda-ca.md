@@ -105,7 +105,7 @@ spec:
 14:42 頃  GCE VM が join（ただし e2-micro の資源不足で Ready を維持できず）
 ```
 
-Azure の 11:50 と 12:49 の間が空いているのは、後述する問題（包括 toleration と、詰まったインスタンスの後始末で発生させた CA の backoff）への対処を行っていたためです。修正後のチェーン自体には人手は入っていません。なお AWS の検証中には、スポットの自然な入れ替わり（旧インスタンスの回収と新インスタンスの join）まで観測できました。
+Azure の 11:50 と 12:49 の間が空いているのは、後述する問題（包括 toleration と、詰まったインスタンスの後始末で発生させた Cluster Autoscaler の backoff）への対処を行っていたためです。修正後のチェーン自体には人手は入っていません。なお AWS の検証中には、スポットの自然な入れ替わり（旧インスタンスの回収と新インスタンスの join）まで観測できました。
 
 ## NetObserv の配置 — direct-flp を全ノードへ
 
@@ -255,7 +255,7 @@ v1.35:
 
 AWS / Azure の provider は自形式でない providerID を単に読み飛ばすため、同じクラスタで問題なく動きます。この差は実装依存で、`k3s://` の control plane や他クラウドの worker が同居する self-hosted 構成では、GCE provider は現状使えないという結論になりました。
 
-なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（CA が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
+なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（Cluster Autoscaler が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
 
 代替として、CA-gcp 用に構築済みだった keyless（Workload Identity Federation）の配線をそのまま流用し、**CronJob が STS token-exchange → サービスアカウント impersonation → Compute API で MIG を resize** する時刻ベースの自動スケールを組みました。これは動作し、14:38 の自動発火で GCE VM が起動して k3s に join、Cilium も起動しました。ただし `e2-micro`（1 GiB・共有 vCPU）では kubelet がリソース飢餓で Ready を維持できず、ワークロード配置と flow 観測には至りませんでした。
 
@@ -302,7 +302,7 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 この結果は upstream にも報告しました（[kubernetes/autoscaler#10140](https://github.com/kubernetes/autoscaler/issues/10140)）。ちょうど `NodeGroupForNode` まわりの契約を明確化する議論（[#9877](https://github.com/kubernetes/autoscaler/issues/9877)）が進行中で、AWS 側でも EKS Hybrid Nodes で同型の問題が報告・修正されており（[#8045](https://github.com/kubernetes/autoscaler/issues/8045)）、混在 providerID クラスタは provider 実装が想定してこなかった領域だということが分かります。
 
-![パッチ版 CA での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
+![パッチ版 Cluster Autoscaler での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
 
 ## 検証で判明した注意点
 
@@ -333,9 +333,9 @@ flowchart TB
 
 「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、というのがこの罠の正体です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
 
-### 3. ASG のタグが消えると CA は静かに沈黙する
+### 3. ASG のタグが消えると Cluster Autoscaler は静かに沈黙する
 
-AWS 側で最初、CA が何の反応も示さなかった原因は、ASG から Cluster Autoscaler 用のタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。auto-discovery タグ 2 つ（`k8s.io/cluster-autoscaler/enabled` とクラスタ名）が無いと CA はグループを発見せず、scale-from-0 用の node-template タグ 3 つ（label 2 + taint 1）が無いと発見しても賄えると判断できません。どちらもエラーにはならず、単に何も起きないため気づきにくいです。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました。
+AWS 側で最初、Cluster Autoscaler が何の反応も示さなかった原因は、ASG から Cluster Autoscaler 用のタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。auto-discovery タグ 2 つ（`k8s.io/cluster-autoscaler/enabled` とクラスタ名）が無いと Cluster Autoscaler はグループを発見せず、scale-from-0 用の node-template タグ 3 つ（label 2 + taint 1）が無いと発見しても賄えると判断できません。どちらもエラーにはならず、単に何も起きないため気づきにくいです。5 つのタグを付け直したところ、その周回から発見・スケールとも正常になりました。
 
 ### 4. IP をラベルにした flow メトリクスは Pod の入れ替えで分断される
 
@@ -343,14 +343,14 @@ flow メトリクスを `SrcAddr`/`DstAddr` ラベルで集計していたため
 
 ### 5. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
 
-詰まったインスタンスを `az vmss delete-instances` で外から消したところ、ちょうど走っていた Cluster Autoscaler のリサイズ要求と競合して失敗が記録され、**ノードグループがスケールアップ backoff に入りました**。イベントには何も出ず、ログに `Node group azure-cil-vmss is not ready for scaleup - backoff` が出るだけなので気づきにくいです。CA が管理するリソースには外から触らないのが原則で、触ってしまった場合は backoff の解消（時間経過か CA の再起動）が要ります。
+詰まったインスタンスを `az vmss delete-instances` で外から消したところ、ちょうど走っていた Cluster Autoscaler のリサイズ要求と競合して失敗が記録され、**ノードグループがスケールアップ backoff に入りました**。イベントには何も出ず、ログに `Node group azure-cil-vmss is not ready for scaleup - backoff` が出るだけなので気づきにくいです。Cluster Autoscaler が管理するリソースには外から触らないのが原則で、触ってしまった場合は backoff の解消（時間経過か Cluster Autoscaler の再起動）が要ります。
 
 ## まとめ
 
 - NetObserv eBPF Agent（direct-flp）は、Tailscale 越しに束ねたマルチクラウド k3s で、**Azure・AWS・GCP の 3 クラウドについてクラウドを跨ぐ pod-to-pod 通信を両側のノードから**観測できました。
 - 検証チェーンは KEDA cron（0→1）と Cluster Autoscaler（node group 0→1）で人手ゼロにでき、終了時刻の自動撤収まで含めて再現可能です。スポットの自然な入れ替わりもそのまま観測に乗りました。
-- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした CA に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → CA scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
-- 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して CA が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
+- GCP は Cluster Autoscaler の GCE provider が混在 providerID クラスタで scale-up できないため（3 バージョンで実測）、まず keyless の CronJob resize で代替しました。その後 GCE provider の `NodeGroupForNode` を 1 箇所パッチした Cluster Autoscaler に差し替えたところ、**Azure / AWS と同じ全チェーン（KEDA → Cluster Autoscaler scale-up 0→1 → join → 両側 flow 観測）が成立**しました。
+- 検証の過程で 5 つの注意点が実測で判明しました。特に「包括 toleration が死にかけノードに吸着して Cluster Autoscaler が発火しない」「IP ラベルの flow メトリクスは Pod 入れ替えで分断される」は、同種の構成を組む際に先に知っておくと時間を節約できます。
 
 ## 参考
 
