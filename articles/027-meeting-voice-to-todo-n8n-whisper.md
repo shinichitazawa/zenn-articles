@@ -29,7 +29,7 @@ published: false
 ## 全体構成
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph クラスタ内
     W[Whisper<br/>faster-whisper small<br/>CPU int8]
     N[n8n]
@@ -79,7 +79,7 @@ flowchart TB
 
 要点は次の3つです。
 
-- **モデルキャッシュを PVC(PersistentVolumeClaim)に置く**。small モデルは初回に約 462MB をダウンロードするため(実測)、Pod 再起動のたびに落とし直さないよう永続化する
+- **モデルキャッシュを PVC に置く**。small モデルは初回に約 462MB をダウンロードするため(実測)、Pod 再起動のたびに落とし直さないよう永続化する
 - **ClusterIP のみで公開しない**。音声とその文字起こしを外に出さないため、Ingress を付けず n8n からのみ到達させる
 - **リソース制限を慎重に決める**。ここで2回事故を起こしました(後述)
 
@@ -180,7 +180,7 @@ flowchart TB
 対処として、Whisper の Pod に**非同期の受付シム**(FastAPI 約 40 行)を同居させました。受付は即座に `job_id` を返し、裏で `/asr` を呼んで結果をファイルに保存、別エンドポイントで取得できるようにします。n8n 側は次のループになります。
 
 ```mermaid
-flowchart TB
+flowchart LR
   S[投入 POST /jobs<br/>即応答] --> W[Wait 30秒]
   W --> P[GET /jobs/id<br/>即応答]
   P --> C{status}
@@ -204,9 +204,10 @@ flowchart TB
     B1[単一ワーカーが処理を占有] --> B2[httpGet probe が毎回 timeout]
     B2 --> B3[開始 5 分で kubelet がコンテナを kill]
   end
+  A4 ~~~ B1
 ```
 
-**1. 文字起こしがコントロールプレーンを巻き込んだ。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)(`preemptionPolicy: Never`)に落とし、逼迫時はデータベースより先に Whisper が退避する設定にしています。代償として処理時間は音声長の約 4.4 倍です。
+**1. 文字起こしがコントロールプレーンを巻き込んだ。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)(`preemptionPolicy: Never`)に落とし、逼迫時はデータベースより先に Whisper が止められる設定にしています。代償として処理時間は音声長の約 4.4 倍です。
 
 **2. liveness probe が処理中の Whisper を殺した。** `httpGet` の liveness probe(timeout 1 秒 × 60 秒間隔 × 5 回)を付けていたところ、文字起こし中は単一ワーカーが処理を占有して HTTP に応答できず、**開始からちょうど 5 分で kubelet がコンテナを kill** しました(実測)。probe を [tcpSocket](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) に変更して解決しています。TCP の接続確認はカーネルが受け付ける限り成功するため、アプリが忙しくても生存と判定できます。
 
@@ -219,7 +220,7 @@ flowchart TB
 
 ### 状態管理の設計
 
-Data Table には変更履歴や権限管理の機能がありません([n8n 公式ドキュメント Data tables](https://docs.n8n.io/data/data-tables/) の機能説明に該当機能の記載なし。2026-08 時点)。ToDo 管理に使うなら自前で設計する必要があります。
+Data Table には変更履歴も権限もないため、ToDo 管理に使うなら自前で設計する必要があります。
 
 ```mermaid
 stateDiagram-v2
@@ -247,7 +248,7 @@ stateDiagram-v2
 
 ## 検証結果
 
-71 秒の会議音声からの通し実行で、最終的に次の 3 件が抽出・登録されました(実測。この回の通し実行は約 310 秒でした。前述の約 313 秒は別の実行の文字起こし単体の値で、処理時間の大半を占める文字起こしは実行ごとに数秒〜十数秒変動します)。
+71 秒の会議音声からの通し実行(310 秒)で、最終的に次の 3 件が抽出・登録されました(実測)。
 
 | ToDo | 担当 | 期限 | 判定 |
 |---|---|---|---|
@@ -259,11 +260,11 @@ stateDiagram-v2
 
 ## この構成の限界と専用ツールの比較
 
-正直な結論として、**ToDo 管理そのものは Jira などの専用ツールの方が適しています**。今回 Data Table で自作したもの(状態機械・変更履歴・リマインド)は、専用ツールなら最初から付いています。権限管理・検索・ダッシュボードもありません。
+正直な結論として、**ToDo 管理そのものは Jira などの専用ツールの方が適しています**。今回 Data Table で自作したもの(状態遷移の管理・変更履歴・リマインド)は、専用ツールなら最初から付いています。権限管理・検索・ダッシュボードもありません。
 
 | 要素 | 今回の自作(n8n + Data Table) | 専用ツール(Jira 等) |
 |---|---|---|
-| 状態機械・変更履歴・リマインド | ワークフローと追記テーブルで自作 | 標準機能 |
+| 状態遷移の管理・変更履歴・リマインド | ワークフローと追記テーブルで自作 | 標準機能 |
 | 権限管理・検索・ダッシュボード | なし | 標準機能 |
 | 会議音声からの自動起票(入口) | **本構成の主目的** | 別途の作り込みが必要 |
 | 音声をクラスタ外に出さない制約 | 満たせる | SaaS 連携では難しい |

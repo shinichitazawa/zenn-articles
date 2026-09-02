@@ -1,5 +1,5 @@
 ---
-title: "Cluster Autoscaler のさくらのクラウド provider を自作する"
+title: "Cluster Autoscaler のさくらクラウド provider を自作する"
 emoji: "🌸"
 type: "tech"
 topics: ["sakuracloud", "kubernetes", "clusterautoscaler", "go", "cloud"]
@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の3クラウドで keyless に動かす構成は、本シリーズの別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす（`021-multicloud-cluster-autoscaler-keyless-k3s`）」で扱いました。その記事では「OCI・Sakura は対象外」と断りましたが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
+自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の3クラウドで keyless に動かす構成は、本シリーズの別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす（`021-multicloud-cluster-autoscaler-keyless-k3s`）」で扱いました。その記事では「OCI・Sakura は対象外」と断りましたが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler（以下 Cluster Autoscaler）provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
 
 さくらのクラウドには AWS の Auto Scaling Group（ASG）や GCP の Managed Instance Group（MIG）に相当する「グループを 0→N に伸縮させる」プリミティブがありません。そのため、既存の多くの provider のように ASG/MIG/VMSS を薄くラップする方式は使えず、**Cluster Autoscaler 自身がサーバとディスクを1台ずつ作成・削除する**方式（[Hetzner Cloud provider](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/hetzner) と同型）で実装します。
 
@@ -33,6 +33,7 @@ flowchart TB
   subgraph sakura[さくら向けに自作した provider]
     CA2[Cluster Autoscaler] -->|1 台ずつ作成・削除を自前実行| S2[サーバ + ディスク<br/>グループ抽象が存在しない]
   end
+  S1 -. さくらにはグループ API が無い .-> CA2
 ```
 
 さくらのクラウドの [API v1.1](https://manual.sakura.ad.jp/cloud-api/1.1/) にはこのグループ抽象がなく、操作単位は個々のサーバとディスクです。この場合の実装モデルが Hetzner Cloud provider で、NodeGroup の increase/decrease を受けたら **provider 自身が API でサーバを1台ずつ作成・削除**します。本記事の provider も同じ方針を採り、フォークの `cluster-autoscaler/cloudprovider/sakuracloud/` に追加しました（upstream には存在せず、公開実装も見当たらなかったため新規に実装しています）。
@@ -54,11 +55,11 @@ Cluster Autoscaler がノードとグループを識別するための規約を2
 - **providerID**: `sakuracloud://<zone>/<serverName>`。kubelet の `--provider-id` に相当する値で、サーバ名で一意化します。
 - **グループ所属タグ**: `ca-group-<nodeGroupName>`。作成するサーバにこのタグを付け、一覧時にグループを逆引きします。
 
-なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（実装例: [civo provider の init()](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/civo/civo_cloud_provider.go#L39-L43)、束ねる側: [cloudprovider/router/](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/router)。パッケージも `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動。2026-08 時点の master）。PR はこの新方式に合わせています。
+なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（パッケージも `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動）。PR はこの新方式に合わせています。
 
 ## ノード作成の API フロー(実測)
 
-`IncreaseSize` で1台増やすときの API 呼び出しは次の順序です。順序と待ち合わせが重要で、ここに実測で判明した注意点が集中します。
+`IncreaseSize` で1台増やすときの API 呼び出しは次の順序です。順序と待ち合わせが重要で、ここに実測で判明した癖が集中します。
 
 ```go
 // 1. ディスク作成 → available になるまで待つ
@@ -93,7 +94,7 @@ doRequest("PUT", "/server/"+serverID+"/power", nil)
 
 サーバ作成の [`POST /server`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) は、公式ドキュメントでも `ServerPlan` を `{"CPU": 2, "MemoryMB": 4096, ...}` のように**リソース値で指定する形**が示されています。ディスクは [`POST /disk`](https://manual.sakura.ad.jp/cloud-api/1.1/disk/index.html) で作成し、公式に「作成直後は Status が available になるまで利用できません」とあるとおり、次の操作前に available を待ちます。hostname やスタートアップスクリプトの注入は [`PUT /disk/:diskid/config`](https://manual.sakura.ad.jp/cloud-api/1.1/disk/index.html) で行います。
 
-## さくら API の注意点(実測)
+## さくら API の癖(実測)
 
 公式ドキュメントに沿って実装しても、実際に動かして初めて分かった挙動が5つありました。
 
@@ -105,13 +106,13 @@ doRequest("PUT", "/server/"+serverID+"/power", nil)
 | 4 | 外部 IdP との OIDC federation が無い（AWS/GCP/Azure のような keyless ができない） | 静的な API キー（トークン/シークレット）を Secret で渡す |
 | 5 | 途中で失敗するとサーバ/ディスクが残ることがある | `ca-group-*` タグと `sakura-cil-*` 命名で棚卸しできるようにする |
 
-注意点 2 は、公式の「起動中のサーバのディスクの書き換えはできません」「作成直後は available まで利用できません」という記述の裏返しで、config 書き込みもディスクを一時的に available でない状態にする、という実測です。注意点 3 の強制停止は、公式のサーバ電源オフ [`DELETE /server/:id/power`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) が `Force: true` を受け付けることに対応します。削除自体は [`DELETE /server/:id`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) に `WithDisk` でディスク ID を渡し、サーバとディスクを一括削除します。
+癖 2 は、公式の「起動中のサーバのディスクの書き換えはできません」「作成直後は available まで利用できません」という記述の裏返しで、config 書き込みもディスクを一時的に available でない状態にする、という実測です。癖 3 の強制停止は、公式のサーバ電源オフ [`DELETE /server/:id/power`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) が `Force: true` を受け付けることに対応します。削除自体は [`DELETE /server/:id`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) に `WithDisk` でディスク ID を渡し、サーバとディスクを一括削除します。
 
-注意点 4 は他の3クラウドとの大きな違いです。AWS/GCP/Azure では自前 OIDC issuer で keyless にできましたが（別記事 `021`）、さくらは静的 API キーが必要でした。
+癖 4 は他の3クラウドとの大きな違いです。AWS/GCP/Azure では自前 OIDC issuer で keyless にできましたが（別記事 `021`）、さくらは静的 API キーが必要でした。
 
 ## 検証(KEDA → Cluster Autoscaler → さくら 0→1→0)
 
-作った provider を実クラスタに載せ、スケールの全チェーンが通ることを確認しました（2026-08 実施）。KEDA(Kubernetes Event-driven Autoscaling)は負荷やイベントに応じて Pod 数を増減させるコンポーネントで、ここでは Pending Pod を作って Cluster Autoscaler のノード追加を誘発する役どころです。
+作った provider を実クラスタに載せ、スケールの全チェーンが通ることを確認しました（2026-08 実施）。
 
 1. KEDA でスケール条件を満たすと `nodeSelector` 付きの pending pod が生まれます。
 2. Cluster Autoscaler が対応する NodeGroup を 0→1 と判断し、上記フローでさくらにサーバを作成します（作成〜電源 ON まで実測で約7分）。
@@ -143,7 +144,7 @@ CA が 0→1 判断  → ディスク作成 → available 待ち → サーバ�
 
 - さくらのクラウドには ASG/MIG 相当が無いため、Cluster Autoscaler provider は Hetzner 型（provider 自身がサーバ+ディスクを作成・削除）で実装しました。
 - ノード作成は「ディスク作成→available 待ち→サーバ作成（プランは CPU/MemoryMB 指定）→ディスク接続・config→**再度 available 待ち**→電源 ON」の順で、待ち合わせを省くと [`disk_is_not_available`](https://manual.sakura.ad.jp/cloud-api/1.1/disk/index.html) で失敗します。
-- 実測で判明した注意点（プラン ID 400 / config 後の再 available 待ち / 一覧に電源状態が無い / OIDC federation 無し / 中断時の残存）を対処に落とし込みました。
+- 実測で判明した癖（プラン ID 400 / config 後の再 available 待ち / 一覧に電源状態が無い / OIDC federation 無し / 中断時の残存）を対処に落とし込みました。
 - KEDA→Cluster Autoscaler→さくらの 0→1→0 を実機で確認し、実装を upstream に PR しました。
 
 ## 参考
