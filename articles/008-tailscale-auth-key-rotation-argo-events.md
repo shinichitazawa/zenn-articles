@@ -10,7 +10,7 @@ published: false
 
 VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用の頭痛の種になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、忘れた瞬間に内部通信が落ちる。
 
-この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。
+この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお本記事の後半では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は前半で足ります)。
 
 想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい人。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利く。
 
@@ -160,7 +160,7 @@ HMAC 検証を EventSource ではなく Sensor の data filter に寄せてい�
 
 Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できる。
 
-EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023 年 6 月で support 終了を宣言、`nats-streaming-server` repository は[2025 年 12 月にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が一択になります。
+EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が一択になります。
 
 ### Core NATS と JetStream の違い
 
@@ -272,7 +272,7 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 
 ## 実装: Sensor の filter とトリガ
 
-Argo Events の data filter は GJSON syntax で、配列要素は `body.#.field` で展開できる[^4]。
+Argo Events の data filter は GJSON(Go 向けの JSON パスクエリ記法)の syntax で、配列要素は `body.#.field` で展開できる[^4]。
 
 [^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — 複数 path をカンマで連結する例として `body.action,body.labels.#(name=="Webhook").name` の形が示されている（2026-09 取得）
 
@@ -338,7 +338,7 @@ spec:
 
 ## cross-namespace RBAC の注意点
 
-Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-ns RBAC を、`argo-events` overlay の kustomization 配下に置くと事故る。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-ns 効果が消える。
+Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと事故る。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消える。
 
 対策は単純: RBAC を `argo` namespace 側の overlay に置く。
 
@@ -609,7 +609,7 @@ spec:
 | 注意点 | 症状 | 対策 |
 |---|---|---|
 | webhook payload が配列 | filter が常に false | `body.#.type` で配列要素を展開 |
-| cross-ns RBAC が overlay に namespace 上書き | Sensor が WT を get できず submit 失敗 | RBAC を target ns の overlay に移動 |
+| cross-namespace RBAC が overlay に namespace 上書き | Sensor が WT を get できず submit 失敗 | RBAC を target ns の overlay に移動 |
 | description に特殊文字 | Tailscale API 400 `description had invalid characters` | `[0-9A-Za-z -]` のみに限定 |
 | IRSA role 名が `-irsa` suffix なし | ACK が `AccessDenied` で create 失敗 | naming convention に `-irsa` 強制 |
 | single-instance ASG で `MinHealthyPercentage` default | default 90% のまま 1 台 ASG を refresh すると `Violate min healthy percentage` fallback が暗黙で発火し短い outage が生じる ([公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html)が「single instance の ASG では推奨しない」と明記) | `MinHealthyPercentage: 0` を Preferences に明示して挙動を意図化 |

@@ -33,7 +33,7 @@ published: false
 
 ## 全体像
 
-このチェーンを 3 クラウドで同型に実行します。ノード供給の実体だけがクラウドごとに異なり（Azure=VMSS / AWS=ASG / GCP=MIG）、KEDA の時刻窓をずらして順に流しました。具体的なタイムラインは次章に載せます。
+このチェーンを 3 クラウドで同型に実行します。ノード供給の実体だけがクラウドごとに異なり（Azure=VMSS(Virtual Machine Scale Sets) / AWS=ASG(Auto Scaling Group) / GCP=MIG(Managed Instance Group)）、KEDA の時刻窓をずらして順に流しました。具体的なタイムラインは次章に載せます。
 
 ```mermaid
 flowchart TB
@@ -328,7 +328,7 @@ kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from
 
 ### 1. 包括 toleration の Pod が「終了処理中のノード」に吸着する
 
-検証用 Pod に `tolerations: [{operator: Exists}]` を付けていたところ、**cordon（`node.kubernetes.io/unschedulable`）や NotReady の taint まで許容してしまい**、撤収中のノードへスケジュールされました。Pod は Pending にならないため、Cluster Autoscaler は「unschedulable な Pod なし」と判断してスケールアップしません。toleration は対象クラウドの dedicated taint だけに絞る必要があります（DaemonSet の全ノード配置とは要件が異なります）。
+検証用 Pod に `tolerations: [{operator: Exists}]` を付けていたところ、**cordon（`node.kubernetes.io/unschedulable`）や NotReady の taint まで許容してしまい**、撤収中のノードへスケジュールされました。Pod は Pending にならないため、Cluster Autoscaler は「unschedulable な Pod なし」と判断して scale-up しません。toleration は対象クラウドの dedicated taint だけに絞る必要があります（DaemonSet の全ノード配置とは要件が異なります）。
 
 ### 2. Prometheus 出力は `encode` ステージに書く
 
@@ -380,7 +380,7 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 
 スポットの入れ替わりでノード側の IP が変わっても同じことが起きます。
 
-**対処**: Pod 名や workload 名で連続して追いたい場合は、本文「Pod 名で見る」節の Kubernetes enrichment を有効にし、`SrcK8S_Name` などの K8s 名ラベルで集計します。direct-flp の素の flow は IP の世界である、という事実の帰結です。
+**対処**: Pod 名や workload 名で連続して追いたい場合は、本文「Pod 名で見る」節の Kubernetes enrichment を有効にし、`SrcK8S_Name` などの Kubernetes 名ラベルで集計します。direct-flp の素の flow は IP の世界である、という事実の帰結です。
 
 ### 5. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
 
@@ -388,7 +388,7 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 
 1. 起動に失敗して詰まったインスタンスを、`az vmss delete-instances` で **Cluster Autoscaler の外から**削除した
 2. ちょうど走っていた Cluster Autoscaler 自身のリサイズ要求と競合し、その操作が「失敗」として記録された
-3. ノードグループが**スケールアップ backoff** 状態になり、以後しばらく増設要求そのものを止めた
+3. ノードグループが**scale-up backoff** 状態になり、以後しばらく増設要求そのものを止めた
 
 このとき Kubernetes のイベントには何も出ず、手掛かりは Cluster Autoscaler のログの `Node group azure-cil-vmss is not ready for scaleup - backoff` の一行だけでした。原則は「Cluster Autoscaler が管理するリソースには外から触らない」。触ってしまった場合、backoff の解消には時間経過を待つか Cluster Autoscaler を再起動します。
 

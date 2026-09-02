@@ -27,7 +27,7 @@ n8n の AI Agent は、Chat Model・Memory・Tool を「サブノード」とし
 まず共通する土台を確認します。n8n の AI Agent ノードは、[公式ドキュメント](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/)によると「チャットモデルと 1 つ以上のツールを接続する」構成です。
 
 ```mermaid
-flowchart TD
+flowchart TB
   T[Chat Trigger] --> A[AI Agent]
   M[Chat Model サブノード<br/>Bedrock / Vertex / Azure] -.ai_languageModel.-> A
   MEM[Memory サブノード] -.ai_memory.-> A
@@ -177,7 +177,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 
 | 項目 | AWS Bedrock Chat Model | Google Vertex Chat Model | Azure OpenAI Chat Model |
 |---|---|---|---|
-| Credential | AWS (IAM) / AWS (AssumeRole) | Google Service Account | Azure OpenAI API / Azure Entra ID (OAuth2) |
+| Credential | AWS (IAM) / AWS (Assume Role) | Google Service Account | Azure OpenAI API / Azure Entra ID (OAuth2) |
 | Authentication | iam / assumeRole | — | — |
 | Model Source | on-demand / inferenceProfile | — | — |
 | Model の指定 | 一覧から選択(接頭辞つき) | Model Name を直接入力(例: gemini-2.5-flash) | **Model (Deployment) Name = デプロイ名**(例: my-gpt4o-deployment) |

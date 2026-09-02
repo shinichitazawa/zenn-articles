@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent は CNI 非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
+EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
 本記事は 2026-05 時点の調査・検証に基づく。
 
@@ -52,7 +52,7 @@ flowchart TB
 1. **eBPF Agent** が各ノードの ingress / egress フローをカーネルから収集
 2. (任意) Kafka を ingestion 層として挟む。大規模クラスタで推奨
 3. **flowlogs-pipeline (FLP)** がフローをエンリッチ、メトリクスを生成、複数バックエンドへ出力
-4. **Loki** / Prometheus / 他 (Kafka / OTLP / IPFIX) に保存
+4. **Loki** / Prometheus / 他 (Kafka / OTLP(OpenTelemetry Protocol) / IPFIX) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
 
 FLP は単体で柔軟性が高い。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
@@ -156,7 +156,7 @@ README の Deployment test 節に重要な記述がある[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF
 
-つまり Amazon EKS の AMI は eBPF が無効化されて出荷される。そのため AL2 / AL2023 ベースのノードグループでは追加設定が必要。
+つまり Amazon EKS の AMI は eBPF が無効化されて出荷される。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要。
 
 | ノード OS | eBPF の出荷状態 | NetObserv を動かすには |
 |---|---|---|

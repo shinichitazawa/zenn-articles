@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-商用 LLM API (Anthropic / OpenAI / Bedrock 等) への依存を減らし、ベンダーロックインを回避する目的で、OSS LLM を EKS 上で並行起動して A/B 比較する構成を検証しました。論点は次の 4 つに収束します。
+商用 LLM API (Anthropic / OpenAI / Bedrock 等) への依存を減らし、ベンダーロックインを回避する目的で、OSS LLM を EKS 上で並行起動して A/B 比較する構成を検証しました。後半では Bedrock Nova 3 モデルとの横断比較・コスト比較まで扱います。論点は次の 4 つに収束します。
 
 1. **モデル選定**: ライセンス自由 (Apache 2.0 / MIT) + 用途別に十分な品質
 2. **インフラ**: GPU 高額化を避ける CPU 推論 + scale-to-zero でコスト最小化
@@ -90,7 +90,7 @@ flowchart TB
 CPU 推論を成立させる鍵は次の 3 つです。
 
 1. **ハードウェア行列演算命令**の活用 — [llama.cpp 公式](https://github.com/ggml-org/llama.cpp) は AVX/AVX2/AVX-512/AMX(Intel) と ARM NEON を網羅しています。本記事の Graviton3 は Arm なので効くのは NEON / SVE です（AMX は Intel 専用で Graviton には存在しません）
-2. **GGUF Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
+2. **GGUF(llama.cpp 系の量子化モデル形式)の Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
 3. **MoE(Mixture of Experts)モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
 
 代表的な token/s (c7g.4xlarge Graviton3 想定。**筆者未実測**で、モデルサイズと量子化形式からの見積りです):
@@ -444,7 +444,7 @@ Worker pod の権限は Secrets Manager の GetSecretValue 2 つだけにしま�
 
 Bedrock 呼び出しは LiteLLM proxy 経由で行うため、本 Role に Bedrock 権限は持たせません。LiteLLM 側の IRSA で Bedrock InvokeModel を持つので、責務が綺麗に分離します。
 
-### コスト試算
+### judge workflow のコスト試算
 
 | 項目 | 月額 |
 |---|---|
@@ -469,7 +469,7 @@ A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動�
 | 6 | `routing_strategy: simple-shuffle` は完全ランダム。同一 prompt で 4 候補を均一比較したい | fingerprint-based routing (同じ prompt hash → 同じ model) に変更可 |
 | 7 | LiteLLM の `telemetry` を切り忘れると BerriAI 社に集計データが送信される | 既存 configmap で `telemetry: false # No phone-home` を明示 |
 
-## コスト試算
+## EKS 全体のコスト試算
 
 us-east-1, spot, EKS Auto Mode 12% 込みの試算です。
 
