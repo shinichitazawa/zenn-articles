@@ -116,7 +116,7 @@ n8n のトレースには `tool_calls.completed: 1` と記録されます。**�
 
 ![Execute Workflow Trigger から Data Table 検索を経て結果を要約して返すサブワークフロー](/images/025-subworkflow-tool.png)
 
-Call n8n Workflow Tool の[公式ドキュメント](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolworkflow/)には、Workflow Input Schema の定義について記載がありますが、**呼び出し先を有効化しておく必要がある旨の記述は見当たりませんでした**(2026-08 時点)。実測では publish するまで前掲のエラーになり、publish 直後に成功しています。
+Call n8n Workflow Tool の[公式ドキュメント](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolworkflow/)には、**Database ソースで本番実行する場合はサブワークフローが publish されている必要があり、未 publish だと `Workflow is not active and cannot be executed` エラーになる**ことが明記されています(2026-09 時点。執筆当時は該当記載を見つけられず実測で確認しましたが、現行ドキュメントでは明文化されています)。実測の挙動(publish するまで前掲のエラー、publish 直後に成功)とも一致します。
 
 publish が必要になる操作は他にもありました(すべて実測)。
 
@@ -139,7 +139,7 @@ ExpressionError: Node '申請を整形' hasn't been executed
 
 Wait ノードの[公式ドキュメント](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.wait/)には、待機中の挙動がこう説明されています。
 
-> When the workflow pauses, it offloads the execution data to the database. When the resume condition is met, the workflow reloads the data and the execution continues.
+> When the workflow pauses it offloads the execution data to the database. When the resume condition is met, the workflow reloads the data and the execution continues.
 
 データベースへの退避と再読み込みが入るため、再開後の実行コンテキストは待機前と同一ではありません。`$('ノード名')` に依存した設計は壊れます。
 
@@ -155,7 +155,7 @@ Wait ノードの[公式ドキュメント](https://docs.n8n.io/integrations/bui
 
 なお、再開用 URL は `$execution.resumeUrl` で参照できます。
 
-> The Wait node provides the `$execution.resumeUrl` variable so that you can reference and send the yet-to-be-generated URL wherever needed.
+> The Wait node provides the `$execution.resumeUrl` variable so that you can reference and send the yet-to-be-generated URL wherever needed, for example to a third-party service or in an email.
 
 また `Limit Wait Time` を設定しておくと、承認が来ないまま放置された場合に自動で再開できます。承認フローでは**期限切れの扱いを決めておかないと、実行が無期限に滞留**します。設定画面では次のようになります(Resume を On Webhook Call、Limit Wait Time を3日、後述の Ignore Bots も有効)。
 
@@ -380,7 +380,7 @@ $ curl -s -A 'Mozilla/5.0' "$WEBHOOK_URL"
 1. **`maxTokensToSample` の既定は 2000**。日本語の構造化出力はすぐ超えるため明示指定が要る
 2. **1回の呼び出しで配列を作らせない**。1件ずつ・フラットなスキーマにすると安定する
 3. **ツールが失敗してもエージェントは先へ進む**。エラー文字列は「情報なし」として解釈される
-4. **サブワークフローをツールにするには publish が必要**(公式ドキュメントに記載を確認できず、実測)
+4. **サブワークフローをツールにするには publish が必要**(実測どおりで、現行の公式ドキュメントにも明記あり)
 5. **Wait を跨いで前段データは読めない**。待機前に保存し、`$execution.id` で更新する設計にする
 6. **出力を疑う前に入力を見る**。AI の回答は、たいてい渡した入力に対しては正しい
 7. **応答ヘッダの待ち時間は 300 秒が上限**(undici の既定)。長い処理は投入 + ポーリングに分ける

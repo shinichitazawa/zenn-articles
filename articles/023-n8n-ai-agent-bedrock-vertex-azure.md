@@ -139,7 +139,7 @@ Vertex Chat Model ノードのパラメータは [公式ドキュメント](http
 
 さらに upstream ソースには Region という選択肢があり、既定値は「資格情報側のリージョンを使う」です。選択肢は Global / EU (Multi-Region) / US (Multi-Region) で、説明にはこう書かれています。
 
-> Where the model runs. Newer Gemini models (3.x) are only available on the Global or the EU/US multi-region locations.
+> Where the model runs. Newer Gemini models (3.x) are only available on the Global or the EU/US multi-region locations. Leave as Default to use the region set in the credential.
 >
 > — [vertex-location.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/gemini-common/vertex-location.ts)
 

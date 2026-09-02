@@ -175,7 +175,7 @@ webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) �
 
 「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem にすぎない[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
 
-公式の表現は[「built-in persistence layer」](https://docs.nats.io/concepts/jetstream)。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
+公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
 
 | 機能 | 実装元 |
 |---|---|
@@ -274,7 +274,7 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 
 Argo Events の data filter は GJSON syntax で、配列要素は `body.#.field` で展開できる[^4]。
 
-[^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — "Common patterns include: ... Array expansion: `body.labels.#(name=="Webhook").name`"
+[^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — 複数 path をカンマで連結する例として `body.action,body.labels.#(name=="Webhook").name` の形が示されている（2026-09 取得）
 
 ```yaml:sensor-tailscale-rotation.yaml
 apiVersion: argoproj.io/v1alpha1

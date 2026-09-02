@@ -80,7 +80,7 @@ flowchart TB
 - `sarashina2.1` 系に 3B は存在せず（公開されているのは 1b のみ、かつ MIT ではありません）、3B の instruct 版として実在するのは `sarashina2.2-3b-instruct-v0.1`（MIT）です。
 - `pfnet/plamo-2-8b` のライセンスは Apache 2.0 ではなく PLaMo Community License で、Hugging Face 上でも gated です。Apache 2.0 なのは `pfnet/plamo-2-1b` の方です。
 
-したがって②は、本節冒頭に掲げた「Apache 2.0 / MIT のみ」という選定基準を満たしていません。基準を優先して `plamo-2-1b` へ差し替えるか、日本語 8B 級を優先して基準を「商用利用可能なライセンス」に緩めるか、いずれかの整理が必要です。
+したがって②は、本節冒頭に掲げた「Apache 2.0 / MIT のみ」という選定基準を満たしていません。本記事では**日本語 8B 級の比較価値を優先し、②に限り基準を「商用利用可能なライセンス」に緩めて続行**します（PLaMo Community License は一定条件で商用利用可。採用時はライセンス全文の確認が必要です）。
 :::
 
 地域分散も意識しました。日本製 2 + 米国製 2 の構成です。中国製 (Qwen / DeepSeek 等) は本検証から除外しています (企業ポリシーや調達基準で中国製 AI を制限するケースがあるためです)。
@@ -473,18 +473,20 @@ A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動�
 
 us-east-1, spot, EKS Auto Mode 12% 込みの試算です。
 
-| Instance | CPU | OD/h | Spot/h | +AutoMode |
+| Instance | CPU | OD/h | Spot/h | Spot+AutoMode 合計/h |
 |---|---|---|---|---|
-| c7g.4xlarge | Graviton3 16 vCPU | $0.580 | $0.18 | $0.20/h |
-| c7g.8xlarge | Graviton3 32 vCPU | $1.160 | $0.40 | $0.45/h |
+| c7g.4xlarge | Graviton3 16 vCPU | $0.580 | $0.18 | $0.20 |
+| c7g.8xlarge | Graviton3 32 vCPU | $1.160 | $0.40 | $0.45 |
 
-4 モデル並行構成 (cpu-small × 2 + cpu-medium × 2) では次のようになります。
+最終列は「Spot 単価 + Auto Mode 管理費（Spot 価格の約 12% で概算）」の合計です。
+
+4 モデル並行構成 (cpu-small × 2 + cpu-medium × 2 = 時間単価 $0.20×2 + $0.45×2 = **$1.30/h**) では次のようになります。
 
 | 利用パターン | 合計月額 |
 |---|---|
-| 軽 PoC (scale-to-zero、月 60h) | 約 $72 |
-| 業務時間 warm (月 198h) | 約 $238 |
-| 24/7 全モデル常時 | 約 $948 |
+| 軽 PoC (scale-to-zero、月 60h) | 約 $78 |
+| 業務時間 warm (月 198h) | 約 $257 |
+| 24/7 全モデル常時 (月 730h) | 約 $949 |
 
 LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月 $80 前後です。商用 Anthropic API の中規模利用 (月 1000 万 token で $30〜150) と同レンジで、データ主権 + ロックイン回避の付加価値が乗ります。
 
@@ -492,7 +494,7 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 
 - 商用 LLM API からの段階移行は LiteLLM Router を抽象化レイヤとして配置し、backend を順次差し替える形が現実的です
 - OSS LLM 4 候補を並行起動して A/B 比較するなら、EKS Auto Mode + Karpenter + KEDA scale-to-zero で月 $80 から成立します
-- モデルは Apache 2.0 / MIT 限定で選ぶことで、商用ライセンス交渉を不要にできます
+- モデルは商用利用可能なライセンスで選びます（①③④は Apache 2.0 / MIT。②のみ PLaMo Community License で、本文の訂正どおり例外扱いです）
 - **CPU 推論 (Graviton3 + NEON/SVE + GGUF Q4_K_M)** で 3-20B クラスは実用速度 (15-60 tok/s) に到達します
 - **Langfuse + LLM-as-judge** で品質スコアリングを自動化し、winner 決定を客観化できます
 - `telemetry: false` (BerriAI への phone-home 遮断) と OpenTelemetry callback は別物です。データ主権を取るなら前者は必ず切ってください
