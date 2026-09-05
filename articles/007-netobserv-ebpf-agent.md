@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測エージェントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
+EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent(以下 eBPF Agent)は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測コンポーネントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
 本記事は 2026-05 時点の調査・検証に基づく。
 
@@ -203,11 +203,17 @@ flowchart TB
 | 観点 | NetObserv eBPF Agent | Cilium Hubble |
 |---|---|---|
 | CNI 依存 | 非依存 (eBPF が動けば何でも)[^netobserv-readme] | Cilium CNI 必須 |
-| 出自 | Red Hat (OpenShift 文脈) | Isovalent (Cisco 買収)、CNCF Graduated |
+| 出自 | Red Hat (OpenShift 文脈) | Isovalent (2024-04 に Cisco が買収完了[^isovalent-cisco])、CNCF Graduated (2023-10)[^cilium-cncf] |
 | データバックエンド | Loki / Prometheus / Kafka / OTLP / IPFIX[^flp-readme] | Hubble Relay → Prometheus / Grafana |
-| L7 プロトコル可視化 | DNS, TCP RTT, packet drops | HTTP, gRPC, Kafka, DNS, TLS handshake |
+| L7・追加メトリクスの可視化 | DNS 追跡, TCP RTT, packet drops (agent features で有効化)[^operator-features] | HTTP, gRPC, DNS, TLS 可視化 (L7 プロキシ経由)[^cilium-l7] |
 | ストレージ要件 | Loki 不要にできる (v1.4+)[^no-loki-blog] | Hubble 自体は短期保存、export 別途 |
-| ARM64 対応 | 公式サポート[^operator-arch] | 公式サポート |
+| ARM64 対応 | 公式サポート[^operator-arch] | 公式サポート (AMD64 / AArch64)[^cilium-arch] |
+
+[^isovalent-cisco]: [Cisco Completes Acquisition of Isovalent](https://investor.cisco.com/news/news-details/2024/Cisco-Completes-Acquisition-of-Isovalent-to-Define-the-Future-of-Multicloud-Networking-and-Security/default.aspx) (2024-04-12)
+[^cilium-cncf]: [CNCF Announces Cilium Graduation](https://www.cncf.io/announcements/2023/10/11/cloud-native-computing-foundation-announces-cilium-graduation/) (2023-10-11)
+[^operator-features]: [netobserv-operator README](https://github.com/netobserv/netobserv-operator) — "Agent features (`spec.agent.ebpf.features`) can enable more features such as tracking packet drops, TCP latency (RTT) and DNS requests and responses."(2026-09 取得)
+[^cilium-l7]: Cilium 公式ガイド: [Layer 7 Examples](https://docs.cilium.io/en/stable/security/policy/layer7/)(HTTP / DNS)、[Securing gRPC](https://docs.cilium.io/en/stable/security/grpc/)、[TLS Visibility](https://docs.cilium.io/en/stable/security/tls-visibility/)(2026-09 時点。かつて L7 ポリシー対象だった Kafka は現行 stable ドキュメントの L7 例から外れている)
+[^cilium-arch]: [Cilium System Requirements — Architecture Support](https://docs.cilium.io/en/stable/operations/system_requirements/)(AMD64 / AArch64、2026-09 取得)
 
 ### 選択基準
 
@@ -336,7 +342,7 @@ CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct 
 
 ## EKS Hybrid Nodes との関係
 
-シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能)に戻して、NetObserv がこの検証でどこに収まるかを考える。
+シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能。詳細は別記事 `002-hybrid-vs-outposts-vs-anywhere`)に戻して、NetObserv がこの検証でどこに収まるかを考える。
 
 | 状況 | 観測手段 |
 |---|---|
@@ -357,7 +363,7 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 ## まとめ
 
 - NetObserv eBPF Agent は CNI 非依存 の eBPF フロー観測 sensor[^netobserv-readme]
-- アーキテクチャ: Agent (DaemonSet) → Kafka (任意) → FLP (flowlogs-pipeline) → Loki / Prometheus / 任意の sink
+- アーキテクチャ: eBPF Agent (DaemonSet) → Kafka (任意) → FLP (flowlogs-pipeline) → Loki / Prometheus / 任意の sink
 - v1.4 以降は Loki 必須ではない、Kafka 経由で任意の分析基盤に流せる[^no-loki-blog]
 - EKS では Bottlerocket なら動く、AL 系は要 eBPF 有効化[^netobserv-readme]
 - Cilium Hubble との使い分け: Cilium 採用なら Hubble、CNI 変えたくないなら NetObserv

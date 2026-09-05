@@ -34,7 +34,7 @@ flowchart TB
 
 ## Kro (Kube Resource Orchestrator)
 
-[Kro](https://kro.run/) は 2024 年後半に公開された比較的新しい OSS。最新 v0.9.3 (2026-08 時点)。リポジトリは [kubernetes-sigs/kro](https://github.com/kubernetes-sigs/kro) へ移管され、Kubernetes SIG 配下のプロジェクトになっています。
+[Kro](https://kro.run/) は 2024 年後半に公開された比較的新しい OSS。最新 v0.9.3 (2026-08 時点)。リポジトリは [kubernetes-sigs/kro](https://github.com/kubernetes-sigs/kro) へ移管され、Kubernetes SIG 配下のプロジェクトになっています。なおプロジェクトの公式表記は小文字の "kro" ですが、本記事では文頭・文中での読みやすさのため "Kro" と表記します。
 
 ### 仕組み
 
@@ -86,7 +86,7 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 ### 特徴
 
 - **Kubernetes ネイティブ** (CRD ベース、verifier/JIT 不要)
-- 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kro-run/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
+- 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kubernetes-sigs/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
 - ACK Controllers と組合せで AWS リソースも RGD で管理可能
 - v0.9.x、alpha API なので破壊的変更の可能性あり
 
@@ -141,13 +141,12 @@ spec:
 |---|---|---|
 | 思想 | Kubernetes ネイティブ RGD で複合リソースをバンドル | クラウド全体を Kubernetes API 化 |
 | 対象 | Kubernetes リソース + (ACK 経由で) AWS リソース | AWS / GCP / Azure / その他全部 |
-| 重さ | 軽量 (100m CPU) | 重 (1GB+ RAM) |
+| 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1GB+ ※筆者未検証の概算) |
 | API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
 | 学習コスト | 中 (RGD 設計) | 高 (Composition + Provider) |
 | Provider エコシステム | ACK 連携 (まだ少) | 豊富 (公式 + コミュニティ) |
 | 規模 | 小〜中小 | 中小〜大規模 |
-| 状態管理 | etcd 直接 | etcd 直接 |
 
 ## 選定の指針
 
@@ -258,7 +257,7 @@ Q3. 複合リソースのバンドル抽象が欲しい ?
 
 ## 次回予告
 
-シリーズ最終回は「EKS Hybrid Nodes での Cilium eBPF の動作」です。VPC CNI が使えない理由から、kube-proxy replacement のカーネルレベル動作、Pod-to-Pod パケットパスまで詳しく見ます。
+シリーズの続編では eBPF まわりを扱います。NetObserv eBPF Agent によるネットワーク flow の観測(別記事 `007-netobserv-ebpf-agent`)と、Raspberry Pi で Cilium を動かす際の OS / CPU 制約(別記事 `009-raspberry-pi-cilium-os-vs-cpu`)です。
 
 ## 参考
 

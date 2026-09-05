@@ -10,7 +10,7 @@ published: false
 
 VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用の頭痛の種になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、忘れた瞬間に内部通信が落ちる。
 
-この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお本記事の後半では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は前半で足ります)。
+この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお記事末尾の付録では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は本編で足ります)。
 
 想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい人。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利く。
 
@@ -152,129 +152,13 @@ spec:
 
 HMAC 検証を EventSource ではなく Sensor の data filter に寄せています。理由は、Argo Events の generic webhook には Tailscale 形式の `t=<epoch>,v1=<hmac>` を verify する built-in がなく、自作 validator を前段に挟むほどの脅威モデルではないため。Sensor 側で event type と deviceName を厳格に絞る方が実装コストが低い。
 
-## 技術の肝: NATS JetStream を EventBus に使う意味
-
-ここまで「EventSource が webhook を受信し Sensor が filter する」と書いてきたが、両者を直接つないでいるわけではありません。間には `EventBus` という CR が介在し、その実体が NATS JetStream stream です。auth key rotation のような「失敗したら手動回復しないと bastion が落ちる」 critical path では、この backbone の保証セマンティクスが品質の天井を決めるため、ここを深掘りします。
-
-### EventBus がなぜ必要か
-
-Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できる。
-
-EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が一択になります。
-
-### Core NATS と JetStream の違い
-
-NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstream)の 2 層があります。
-
-- **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消える (fire-and-forget)
-- **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれる。Consumer が落ちて再起動しても、未 ack のメッセージを再配送する
-
-webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補にすらならません。
-
-### JetStream の実装上の正体
-
-「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem にすぎない[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
-
-公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
-
-| 機能 | 実装元 |
-|---|---|
-| TCP 接続 (port 4222 共用) | Core NATS から借りる |
-| NATS protocol (PUB / SUB / MSG) | Core NATS から借りる |
-| Subject-based routing | Core NATS から借りる |
-| 認証 / ACL | Core NATS から借りる |
-| disk への永続化 | JetStream 独自 |
-| Raft consensus | JetStream 独自 |
-| Stream / Consumer の state machine | JetStream 独自 |
-| API endpoint group (`$JS.API.*`) | JetStream 独自 |
-
-client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけ。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開される[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
-
-[^js1]: ソースは [github.com/nats-io/nats-server](https://github.com/nats-io/nats-server) の `server/jetstream*.go`。リポジトリは Go 99.7%、Apache 2.0、CNCF Incubating project。
-[^js2]: JetStream API subject の完全な一覧は [JetStream API reference](https://docs.nats.io/reference/jetstream/api/) を参照。
-
-### Argo Events 公式の JetStream native deployment
-
-`EventBus` CR を 1 個書くだけで、Argo Events controller が JetStream の StatefulSet を namespace 内に立ててくれる。[公式 doc の native deployment](https://argoproj.github.io/argo-events/eventbus/jetstream/) の例:
-
-```yaml:eventbus-default.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: EventBus
-metadata:
-  name: default
-  namespace: argo-events
-spec:
-  jetstream:
-    version: "2.10.10"     # 具体 version を指定、"latest" は非推奨
-    replicas: 3            # default 3 (single-node ではない)
-    persistence:
-      storageClassName: gp3
-      accessMode: ReadWriteOnce
-      volumeSize: 10Gi
-```
-
-このとき JetStream は内部で:
-
-- `default` という名前の Stream を作成
-- subject のパターンは `default.<eventsourcename>.<eventname>` (公式 doc に明記)
-- Sensor は Durable Consumer として subscribe する
-
-「subject が階層構造で event source 名と event 名にマップされている」ことが Sensor の filter dependency と一対一対応する設計になっています。
-
-### Stream の retention をどう選ぶか
-
-JetStream の Stream は 3 種類の retention policy を持つ ([公式](https://docs.nats.io/learn/jetstream/your-first-stream)):
-
-| Policy | 挙動 | 用途 |
-|---|---|---|
-| Limits (default) | MaxMsgs / MaxBytes / MaxAge の制限に達したら自動削除 | 汎用 |
-| WorkQueue | consumer が ack したら削除、1 subject に 1 consumer のみ | キュー型 |
-| Interest | consumer が ack するまで保持、consumer 不在なら不要 | pub-sub 風 |
-
-Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ません。
-
-storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で 90 日分どころか年単位で保持できる。
-
-### Consumer の Ack semantics
-
-JetStream Consumer の挙動は[公式 doc](https://docs.nats.io/learn/jetstream/pull-consumers) によると:
-
-- **AckPolicy: AckExplicit (デフォルト)** — メッセージごとに ack を返す必要がある
-- **AckWait** — ack を待つタイムアウト、超過したら再配送
-- **MaxDeliver** — 再配送試行回数の上限 (デフォルト -1 = 無限)
-
-Argo Events Sensor は durable consumer として ack-explicit でメッセージを取り、trigger 実行が成功 (今回の場合: argoWorkflow submit が成功) したら ack します。ここでの at-least-once 保証 が、auth key rotation の「webhook → Workflow submit が必ず一度は走る」要件と直接マッチします。
-
-### at-least-once の含意 — べき等性が必須
-
-公式の delivery semantics は [base が at-least-once、exactly-once は unique message ID + double ack で実現可能](https://docs.nats.io/concepts/jetstream)と明示しています。Argo Events 標準の Sensor は exactly-once を使っていないため、同一 webhook payload を起点に Workflow が 2 回 submit される可能性があります。auth key の場合、
-
-- 2 回 rotation が走っても結果は等価 (新 key を発行 → Secrets Manager 書き換え → instance refresh)
-- ただし instance refresh は in-flight を 1 つしか許容しない (API が `InstanceRefreshInProgress` で 400 を返す)
-- Workflow 側で `start_instance_refresh` 直後に既存 refresh が無いか check するか、`ttlStrategy` + retry policy で対処する
-
-実装では「2 回目の Workflow が走った時に instance refresh が in-progress なら成功扱いで抜ける」分岐を入れている (rotate.py の例外 handling)。
-
-### 運用上の注意点
-
-| 項目 | 推奨 / 注意点 |
-|---|---|
-| replicas | 3 (デフォルト)。1 にすると JetStream cluster が組めず persistence の意味が薄れる |
-| PVC size | low-volume なら 10Gi で十分。logging 用途で event が多い namespace なら MaxBytes を計算して決める |
-| version pinning | `version: "latest"` は[公式が非推奨](https://argoproj.github.io/argo-events/eventbus/jetstream/)。具体的な patch version を打つ |
-| multi-namespace | namespace ごとに `EventBus` が必要 (1 つの JetStream cluster を namespace 越しに共有することはできない) |
-| monitor | NATS server の[`/jsz` monitoring endpoint](https://docs.nats.io/learn/monitoring/monitoring-endpoints)で stream の `messages` / `first_seq` / `consumer_count`、consumer の `num_ack_pending` / `num_redelivered` を確認。Prometheus 連携は [`prometheus-nats-exporter`](https://github.com/nats-io/prometheus-nats-exporter) 経由 |
-| migration | NATS Streaming (deprecated) からの移行は、EventBus を別 namespace に新規作成して EventSource / Sensor を順次ポイント変更する blue-green が安全 |
-
-### 何が嬉しいか — 1 行で
-
-> EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に焼き付ける**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせる。
+EventSource と Sensor は直接つながっているわけではなく、間に `EventBus` という CR(実体は NATS JetStream stream)が介在します。この保証セマンティクスの深掘りは記事末尾の「付録: NATS JetStream を EventBus に使う意味」にまとめました(実装だけ追う場合は読み飛ばし可)。
 
 ## 実装: Sensor の filter とトリガ
 
 Argo Events の data filter は GJSON(Go 向けの JSON パスクエリ記法)の syntax で、配列要素は `body.#.field` で展開できる[^4]。
 
-[^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — 複数 path をカンマで連結する例として `body.action,body.labels.#(name=="Webhook").name` の形が示されている（2026-09 取得）
+[^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — 複数 path をカンマで連結する例として `body.action,body.labels.#(name=="Webhook").name,body.labels.#(name=="Approved").name` の形が示されている（2026-09 取得）
 
 ```yaml:sensor-tailscale-rotation.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -604,7 +488,7 @@ spec:
 
 これで Workflow Pod 自体は `secretsmanager:GetSecretValue` を直接持たません。ESO の IRSA がその責務を一手に引き受ける構造になる[^2]。
 
-## 実装で踏んだ問題
+## 実装で詰まった問題
 
 | 注意点 | 症状 | 対策 |
 |---|---|---|
@@ -653,6 +537,124 @@ curl -X POST http://localhost:13000/tailscale \
 ```
 
 WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で submit されれば filter まで含めて配線 OK。
+
+## 付録: NATS JetStream を EventBus に使う意味
+
+ここまで「EventSource が webhook を受信し Sensor が filter する」と書いてきたが、両者を直接つないでいるわけではありません。間には `EventBus` という CR が介在し、その実体が NATS JetStream stream です。auth key rotation のような「失敗したら手動回復しないと bastion が落ちる」 critical path では、この backbone の保証セマンティクスが品質の天井を決めるため、ここを深掘りします。
+
+### EventBus がなぜ必要か
+
+Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できる。
+
+EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が一択になります。
+
+### Core NATS と JetStream の違い
+
+NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstream)の 2 層があります。
+
+- **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消える (fire-and-forget)
+- **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれる。Consumer が落ちて再起動しても、未 ack のメッセージを再配送する
+
+webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補にすらならません。
+
+### JetStream の実装上の正体
+
+「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem にすぎない[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
+
+公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
+
+| 機能 | 実装元 |
+|---|---|
+| TCP 接続 (port 4222 共用) | Core NATS から借りる |
+| NATS protocol (PUB / SUB / MSG) | Core NATS から借りる |
+| Subject-based routing | Core NATS から借りる |
+| 認証 / ACL | Core NATS から借りる |
+| disk への永続化 | JetStream 独自 |
+| Raft consensus | JetStream 独自 |
+| Stream / Consumer の state machine | JetStream 独自 |
+| API endpoint group (`$JS.API.*`) | JetStream 独自 |
+
+client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけ。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開される[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
+
+[^js1]: ソースは [github.com/nats-io/nats-server](https://github.com/nats-io/nats-server) の `server/jetstream*.go`。リポジトリは Go 99.7%、Apache 2.0、CNCF Incubating project。
+[^js2]: JetStream API subject の完全な一覧は [JetStream API reference](https://docs.nats.io/reference/jetstream/api/) を参照。
+
+### Argo Events 公式の JetStream native deployment
+
+`EventBus` CR を 1 個書くだけで、Argo Events controller が JetStream の StatefulSet を namespace 内に立ててくれる。[公式 doc の native deployment](https://argoproj.github.io/argo-events/eventbus/jetstream/) の例:
+
+```yaml:eventbus-default.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+  namespace: argo-events
+spec:
+  jetstream:
+    version: "2.10.10"     # 具体 version を指定、"latest" は非推奨
+    replicas: 3            # default 3 (single-node ではない)
+    persistence:
+      storageClassName: gp3
+      accessMode: ReadWriteOnce
+      volumeSize: 10Gi
+```
+
+このとき JetStream は内部で:
+
+- `default` という名前の Stream を作成
+- subject のパターンは `default.<eventsourcename>.<eventname>` (公式 doc に明記)
+- Sensor は Durable Consumer として subscribe する
+
+「subject が階層構造で event source 名と event 名にマップされている」ことが Sensor の filter dependency と一対一対応する設計になっています。
+
+### Stream の retention をどう選ぶか
+
+JetStream の Stream は 3 種類の retention policy を持つ ([公式](https://docs.nats.io/learn/jetstream/your-first-stream)):
+
+| Policy | 挙動 | 用途 |
+|---|---|---|
+| Limits (default) | MaxMsgs / MaxBytes / MaxAge の制限に達したら自動削除 | 汎用 |
+| WorkQueue | consumer が ack したら削除、1 subject に 1 consumer のみ | キュー型 |
+| Interest | consumer が ack するまで保持、consumer 不在なら不要 | pub-sub 風 |
+
+Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ません。
+
+storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で 90 日分どころか年単位で保持できる。
+
+### Consumer の Ack semantics
+
+JetStream Consumer の挙動は[公式 doc](https://docs.nats.io/learn/jetstream/pull-consumers) によると:
+
+- **AckPolicy: AckExplicit (デフォルト)** — メッセージごとに ack を返す必要がある
+- **AckWait** — ack を待つタイムアウト、超過したら再配送
+- **MaxDeliver** — 再配送試行回数の上限 (デフォルト -1 = 無限)
+
+Argo Events Sensor は durable consumer として ack-explicit でメッセージを取り、trigger 実行が成功 (今回の場合: argoWorkflow submit が成功) したら ack します。ここでの at-least-once 保証 が、auth key rotation の「webhook → Workflow submit が必ず一度は走る」要件と直接マッチします。
+
+### at-least-once の含意 — べき等性が必須
+
+公式の delivery semantics は [base が at-least-once、exactly-once は unique message ID + double ack で実現可能](https://docs.nats.io/concepts/jetstream)と明示しています。Argo Events 標準の Sensor は exactly-once を使っていないため、同一 webhook payload を起点に Workflow が 2 回 submit される可能性があります。auth key の場合、
+
+- 2 回 rotation が走っても結果は等価 (新 key を発行 → Secrets Manager 書き換え → instance refresh)
+- ただし instance refresh は in-flight を 1 つしか許容しない (API が `InstanceRefreshInProgress` で 400 を返す)
+- Workflow 側で `start_instance_refresh` 直後に既存 refresh が無いか check するか、`ttlStrategy` + retry policy で対処する
+
+実装では「2 回目の Workflow が走った時に instance refresh が in-progress なら成功扱いで抜ける」分岐を入れている (rotate.py の例外 handling)。
+
+### 運用上の注意点
+
+| 項目 | 推奨 / 注意点 |
+|---|---|
+| replicas | 3 (デフォルト)。1 にすると JetStream cluster が組めず persistence の意味が薄れる |
+| PVC size | low-volume なら 10Gi で十分。logging 用途で event が多い namespace なら MaxBytes を計算して決める |
+| version pinning | `version: "latest"` は[公式が非推奨](https://argoproj.github.io/argo-events/eventbus/jetstream/)。具体的な patch version を打つ |
+| multi-namespace | namespace ごとに `EventBus` が必要 (1 つの JetStream cluster を namespace 越しに共有することはできない) |
+| monitor | NATS server の[`/jsz` monitoring endpoint](https://docs.nats.io/learn/monitoring/monitoring-endpoints)で stream の `messages` / `first_seq` / `consumer_count`、consumer の `num_ack_pending` / `num_redelivered` を確認。Prometheus 連携は [`prometheus-nats-exporter`](https://github.com/nats-io/prometheus-nats-exporter) 経由 |
+| migration | NATS Streaming (deprecated) からの移行は、EventBus を別 namespace に新規作成して EventSource / Sensor を順次ポイント変更する blue-green が安全 |
+
+### 何が嬉しいか — 1 行で
+
+> EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に焼き付ける**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせる。
 
 ## まとめ
 

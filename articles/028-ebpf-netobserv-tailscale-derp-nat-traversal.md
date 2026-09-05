@@ -8,14 +8,14 @@ published: false
 
 ## はじめに
 
-Kubernetes クラスタ内の Grafana を Tailscale の Ingress で tailnet に公開したところ、自作のネットワーク異常検知(NetObserv の eBPF flow を n8n で分析するもの)が「外部宛の新規通信」を検知しました。その通信元は Tailscale の Ingress プロキシ Pod で、通信の中身を NetObserv の eBPF flow ログで追うと、Tailscale がピア間接続を確立するときの通信(コントロールプレーン・STUN・DERP リレー・直結 WireGuard)が、そのままポート単位で並んでいました。
+Kubernetes クラスタ内の Grafana を Tailscale の Ingress で tailnet に公開したところ、自作のネットワーク異常検知(NetObserv の eBPF flow を n8n で分析するもの)が「外部宛の新規通信」を検知しました。その通信元は Tailscale の Ingress プロキシ Pod で、通信の中身を NetObserv の eBPF flow ログで追うと、Tailscale がピア間接続を確立するときの通信(コーディネーションサーバ・STUN・DERP リレー・直結 WireGuard)が、そのままポート単位で並んでいました。
 
 この記事は、その実測ログを一次データにして、Tailscale の接続確立の各段階を「クラスタ側の flow」から復元します。あわせて、なぜこの粒度が eBPF flow だと見えて Prometheus や cAdvisor では見えないのか、そして eBPF で「見えること・見えないこと」の境界を整理します。
 
 - 想定読者: Kubernetes とネットワークの中級者(Tailscale/WireGuard/NAT 越えの概念を触ったことがある方)
 - 前提環境: k3s + Cilium 上に NetObserv の eBPF agent を DaemonSet で常駐、Tailscale Kubernetes operator で Ingress を公開
 - 実測データは筆者環境で取得した実物です。筆者自身の tailnet 名・tailnet アドレス(100.x)・デバイス・直結ピアの公開 IP など、個人や自環境を特定し得る値は伏字(`<...>`)にしています。これらが外部に公開されることはありません(公開しているのは tailnet 内アクセス限定の Grafana のみで、Funnel は使っていません)。
-- 一方で、掲載している DERP・コントロールプレーン・STUN サーバの IP は、筆者の機器ではなく Tailscale 社がインターネット上で運用する全ユーザー共通のサーバ群です(例: `derp1.tailscale.com` は公開 DNS で誰でも解決できます)。筆者個人を示す情報ではないため、そのまま掲載しています。DERP は暗号化済みパケットを中継するだけで中身は読めません([DERP servers](https://tailscale.com/kb/1232/derp-servers))。
+- 一方で、掲載している DERP・コーディネーションサーバ・STUN サーバの IP は、筆者の機器ではなく Tailscale 社がインターネット上で運用する全ユーザー共通のサーバ群です(例: `derp1.tailscale.com` は公開 DNS で誰でも解決できます)。筆者個人を示す情報ではないため、そのまま掲載しています。DERP は暗号化済みパケットを中継するだけで中身は読めません([DERP servers](https://tailscale.com/kb/1232/derp-servers))。
 
 :::message
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
@@ -35,7 +35,7 @@ flowchart TB
 
 ## eBPF flow でこの粒度が見える理由
 
-NetObserv の eBPF agent は、各 Pod の仮想 NIC(veth。Cilium 環境では `lxc...`)に TC(Linux Traffic Control)の tcx フックで eBPF プログラムを載せ、その NIC を通過するパケットの L3/L4 メタデータを取り出します。取得できるのは送信元/宛先 IP、送信元/宛先ポート、プロトコル番号、バイト/パケット数、TCP の RTT などで、さらに Kubernetes のメタデータ(namespace / Pod 名 / Owner)で enrich されます。
+NetObserv の eBPF agent は、各 Pod の仮想 NIC(veth。Cilium 環境では `lxc...`)に TC(Linux Traffic Control。カーネルのパケット送受信パスに処理を挟み込むフック機構)の tcx フック(TC 用 eBPF プログラムを複数・順序付きで attach できる新しい取り付け口)で eBPF プログラムを載せ([agent が TC/TCX フックに attach することは公式 README の権限要件に明記](https://github.com/netobserv/netobserv-ebpf-agent/blob/4673df30518a/README.md)、2026-09 取得)、その NIC を通過するパケットの L3/L4 メタデータを取り出します。取得できるのは送信元/宛先 IP、送信元/宛先ポート、プロトコル番号、バイト/パケット数、TCP の RTT などで、さらに Kubernetes のメタデータ(namespace / Pod 名 / Owner)で enrich されます。
 
 | 観測手段 | 分かること | 通信相手と宛先ポート |
 |---|---|---|
@@ -68,7 +68,7 @@ map[DstK8S_Namespace:tailscale DstK8S_Name:ts-grafana-tsx58-0
 
 | 役割(推定) | プロトコル/ポート | 観測した相手(例) | 備考 |
 |---|---|---|---|
-| コントロールプレーン | TCP 443 / TCP 80 | `52.207.202.187`(AWS us-east-1) ほか | 持続的な HTTPS。80 併用は後述の公式仕様と一致 |
+| コーディネーションサーバ | TCP 443 / TCP 80 | `52.207.202.187`(AWS us-east-1) ほか | 持続的な HTTPS。80 併用は後述の公式仕様と一致 |
 | STUN(公開エンドポイント発見) | UDP 3478 | `172.238.6.179`, `205.147.105.30`, `192.73.240.132`, `162.248.221.248` ほか多数 | 複数 DERP へ一斉にプローブ |
 | DERP リレー | TCP 443 + UDP 3478(同一ホスト) | `172.238.6.179` | 443 と 3478 の両方を同一 IP に出しており DERP サーバの特徴 |
 | ポートマッピング探索 | UDP 239.255.255.250:1900(SSDP マルチキャスト) | ルータ向けマルチキャスト | UPnP-IGD の探索。後述 |
@@ -81,15 +81,15 @@ map[DstK8S_Namespace:tailscale DstK8S_Name:ts-grafana-tsx58-0
 
 観測されたポートを、Tailscale 公式ドキュメントの記述に当てはめていきます。
 
-### 1. コントロールプレーン(TCP 443 / 80)
+### 1. コーディネーションサーバ(TCP 443 / 80)
 
-Tailscale はまずコーディネーションサーバ(コントロールプレーン)に接続し、鍵や他ノードの情報(netmap)を受け取ります。[公式のファイアウォールポートの解説](https://tailscale.com/kb/1082/firewall-ports)は次のように述べています。
+Tailscale はまずコーディネーションサーバ(Tailscale の管理サーバ。公式ドキュメントでは control plane とも表記されます)に接続し、鍵や他ノードの情報(netmap)を受け取ります。[公式のファイアウォールポートの解説](https://tailscale.com/kb/1082/firewall-ports)は次のように述べています。
 
 > Connections to the coordination server prefer to use HTTP on port 80 with an efficient encrypted transport ... data connections to the DERP relays use HTTPS on port 443.
 >
 > — [Firewall ports](https://tailscale.com/kb/1082/firewall-ports)
 
-観測でも、AWS us-east-1 のアドレスへ持続的な TCP 443、および別ホストへ TCP 80 が出ていました。80 でも「efficient encrypted transport」で暗号化されるため、中身は flow からは見えません。コントロールプレーンと断定はできませんが、443/80 の持続接続かつ AWS us-east-1 という特徴は上記の公式仕様と一致します。
+観測でも、AWS us-east-1 のアドレスへ持続的な TCP 443、および別ホストへ TCP 80 が出ていました。80 でも「efficient encrypted transport」で暗号化されるため、中身は flow からは見えません。コーディネーションサーバと断定はできませんが、443/80 の持続接続かつ AWS us-east-1 という特徴は上記の公式仕様と一致します。
 
 ### 2. STUN による公開エンドポイント発見(UDP 3478)
 

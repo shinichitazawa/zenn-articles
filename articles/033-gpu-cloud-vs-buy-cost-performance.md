@@ -8,10 +8,10 @@ published: false
 
 ## はじめに
 
-オープンウェイトの動画生成モデル MiniMax H3(33B、量子化済みで重み約 44.5GB)を自前で動かそうとして、1 週間で Google Colab・GCP・さくらの高火力 DOK・GPU 購入(BTO/中古)を横断的に検討・実測しました。本記事はその過程で取れた一次データ — **無料 GPU が OOM で死ぬ瞬間のログ、Spot GPU がクォータで拒否される正確なエラー、秒課金 GPU の実測価格** — を整理し、「クラウドで借りる vs 買う」の判断材料にまとめたものです。
+オープンウェイトの動画生成モデル MiniMax H3(33B、量子化済みで重み約 44.5GB)を自前で動かそうとして、1 週間で Google Colab・GCP・さくらの高火力 DOK・GPU 購入(BTO(受注生産 PC)/中古)を横断的に検討・実測しました(後半のコスト比較では、参考として市場型 GPU クラウドの Vast.ai・RunPod と AWS Spot も同じ表に並べます)。本記事はその過程で取れた一次データ — **無料 GPU が OOM で死ぬ瞬間のログ、Spot GPU がクォータで拒否される正確なエラー、秒課金 GPU の実測価格** — を整理し、「クラウドで借りる vs 買う」の判断材料にまとめたものです。
 
 - 想定読者: ローカル LLM / 画像・動画生成を自前で動かしたい個人〜小規模チーム
-- 題材ワークロード: ComfyUI + MiniMax H3(VRAM 16GB+ / システム RAM 24GB+ が実測ライン。根拠は後述)
+- 題材ワークロード: ComfyUI + MiniMax H3(VRAM 16GB+ / システム RAM 32GB+ が目安。根拠は後述)
 - 価格・在庫は 2026-08-29 時点の実測または公式ページの値です。スポット価格と中古相場は変動します
 
 :::message
@@ -30,7 +30,9 @@ published: false
 | turbo LoRA | 2.0 GB |
 | **T2V 最小セット合計** | **約 44.5 GB** |
 
-VRAM に全部は載らないため、ComfyUI は重みをストリーミングします(後述の実測どおり、これは実際に機能します)。**効いてくるのは VRAM 単体ではなく「VRAM + システム RAM + ディスク」の 3 段構え**で、ここが安い GPU インスタンス選びの落とし穴になります。
+※NVFP4 は NVIDIA の 4bit 浮動小数点形式。世代ごとの対応は後述の GPU 比較表の節で扱います。
+
+VRAM に全部は載らないため、ComfyUI は重みをストリーミングします(後述の実測どおり、これは実際に機能します)。**効いてくるのは VRAM 単体ではなく「VRAM + システム RAM + ディスク」の 3 段構え**で、ここが安い GPU インスタンス選びで見落としやすい注意点になります。
 
 ## 実測 1: 無料 Colab (T4) は VRAM ではなく RAM で死ぬ
 
@@ -48,7 +50,7 @@ GPU: 8255 MiB used
 RAM: total 12GB / used 9GB / available 2GB / swap 0
 ```
 
-**教訓: 重み 44.5GB をストリーミングするには、あふれた分を受けるシステム RAM が要る。** VRAM のスペック表だけ見て借りると、この形で失敗します。逆に言えば VRAM 16GB 級でも RAM が 32GB+ あれば戦えるはず — これが以降の選定基準「VRAM 16GB+ / RAM 24GB+」の根拠です。
+**教訓: 重み 44.5GB をストリーミングするには、あふれた分を受けるシステム RAM が要る。** VRAM のスペック表だけ見て借りると、この形で失敗します。逆に言えば VRAM 16GB 級でも RAM が 32GB+ あれば戦えるはず — これが以降の選定基準「VRAM 16GB+ / RAM 32GB+」の根拠です(実測で成功した構成は RAM 40GB(DOK)と 53GB(Colab Pro)で、失敗した構成は 12GB。32GB は「重み 44.5GB − VRAM 16GB ≒ 28.5GB を RAM 側で受けられる」ことから置いた下限の見積りです)。
 
 ## 実測 2: GCP の Spot GPU は「グローバルクォータ」に阻まれる
 
@@ -86,7 +88,7 @@ V100 32GB + RAM 40GB は上の要件を満たします。
 **実走結果(2026-08-29)**: DOK の V100 プランで H3 の T2V を 1 本生成できました。
 
 - タスク実行 790 秒(13.2 分)= 重み 44.5GB のダウンロード約 8 分 + モデル初期化 3.2 分 + サンプリング 4.4 秒/step × 4 steps(turbo LoRA)
-- 出力: 608×352 / 1.6 秒 / h264 + **ステレオ AAC**(H3 は映像と音声を単一パスで同時生成する)
+- 出力: 608×352 / 1.6 秒 / h264 + **ステレオ AAC**(H3 は映像と音声を単一パスで同時生成する。[公式 model card](https://huggingface.co/MiniMaxAI/MiniMax-H3) が「The H3-Omni-Transformer jointly predicts video and audio latents, which are then decoded into video and stereo audio, respectively.」と説明しています(2026-09 取得))
 - **実費: 約 12.6 円**
 - 懸念だった Volta 世代の制約は、ComfyUI(comfy_kitchen)側が吸収: ログに
   `Native ops: convrot_w4a4, int8_tensorwise, ... emulated ops: nvfp4, float8_*` とあり、
@@ -110,7 +112,7 @@ V100 32GB + RAM 40GB は上の要件を満たします。
 | RTX 5060 Ti 16GB | Blackwell 2025 | 16GB | 448 GB/s | — | ✓ | fp4 | 新品 約 ¥9万 |
 | RTX 5090 | Blackwell 2025 | 32GB | 1.79 TB/s | — | ✓ | fp4 | 新品 単体 ¥90万・BTO 一式 ¥75〜113万 |
 
-スペック列は各製品の NVIDIA 公式データシート([データセンター GPU](https://www.nvidia.com/en-us/data-center/products/)、[GeForce](https://www.nvidia.com/ja-jp/geforce/graphics-cards/))の公称値を丸めたものです。**「参考価格」列の中古・BTO 実勢価格は 2026-08 時点の筆者調べで、一次資料が存在しない数値です**(中古相場・品薄プレミアムは日々変動します。購入時は販売店の現在価格を確認してください)。
+スペック列は各製品の NVIDIA 公式データシート([データセンター GPU](https://www.nvidia.com/en-us/data-center/products/)、[GeForce](https://www.nvidia.com/ja-jp/geforce/graphics-cards/))の公称値を丸めたものです。表中の TF は TeraFLOPS(1 秒あたり 1 兆回の浮動小数点演算)です。**「参考価格」列の中古・BTO 実勢価格は 2026-08 時点の筆者調べで、一次資料が存在しない数値です**(中古相場・品薄プレミアムは日々変動します。購入時は販売店の現在価格を確認してください)。
 
 読み方のポイント:
 
@@ -154,7 +156,7 @@ V100 32GB + RAM 40GB は上の要件を満たします。
 
 ## 補足: モデルライセンスも「調達」のうち
 
-H3 の重みは MiniMax H3 Community License で配布されています(2026-08-29 確認)。生成物に MiniMax は権利を主張せず、商用利用も年商 2,000 万ドルまでは自由ですが、**適用地域から EU・英国・韓国・米国が除外されている**点と、商用製品での「MiniMax H3」表示義務は珍しい条項です。GPU の調達先を選ぶ前に、動かすモデルのライセンスが自分の地域・用途で成立するかの確認を(「オープンウェイト ≠ オープンライセンス」)。
+H3 の重みは [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE) で配布されています(2026-08-29 確認)。生成物に MiniMax は権利を主張せず、商用利用も年商 2,000 万ドルまでは自由ですが、**適用地域から EU・英国・韓国・米国が除外されている**点と、商用製品での「MiniMax H3」表示義務は珍しい条項です。GPU の調達先を選ぶ前に、動かすモデルのライセンスが自分の地域・用途で成立するかの確認を(「オープンウェイト ≠ オープンライセンス」)。
 
 ## まとめ
 

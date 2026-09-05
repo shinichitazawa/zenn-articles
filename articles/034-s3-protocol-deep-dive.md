@@ -46,7 +46,7 @@ XML レスポンス(JSON ではない! 2006 年の設計がそのまま)と、`x
 
 ### 2.2 認証: SigV4 — 互換実装の最初の関門
 
-現行の認証は **AWS Signature Version 4**。リクエストを正規化(canonical request)し、日付・リージョン・サービス名から導出した鍵で HMAC-SHA256 署名して `Authorization` ヘッダに載せます。互換ストレージを名乗るなら[この署名検証の実装が事実上必須](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html)で、旧 SigV2 のみ対応の実装は現代のクライアントから使えません。
+現行の認証は **AWS Signature Version 4**。リクエストを正規化(canonical request。メソッド・パス・クエリ・ヘッダ・ペイロードのハッシュを決められた順序と書式で 1 つの文字列に整形したもの)し、日付・リージョン・サービス名から導出した鍵で HMAC-SHA256 署名して `Authorization` ヘッダに載せます。互換ストレージを名乗るなら[この署名検証の実装が事実上必須](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html)で、旧 SigV2 のみ対応の実装は現代のクライアントから使えません。
 
 さくらのオブジェクトストレージも SigV4 を実装しているからこそ、`aws` CLI・`s5cmd`・boto3・n8n の S3 ノードが `--endpoint-url` の差し替えだけで動きます。
 
@@ -74,13 +74,13 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of **unofficial** Amazon AWS S3 compatibility tests」と明記しているとおり、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースで実装を叩きます。
 
-このテストを各実装に対して走らせるとパス数に実装間で数倍の開きが出ることが知られており(各実装の対応 API 一覧は各公式ドキュメントに明記があります。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、**「S3 互換」は二値ではなくグラデーション**です。採用判断では、看板ではなく「自分が使う API サブセットで s3-tests を回した結果」を見るのが確実です。
+対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、看板ではなく「自分が使う API サブセットで s3-tests を回した結果」を見るのが確実です。
 
 ### 3.2 主要なオープンソース実装
 
 | 実装 | GitHub | 特徴 |
 |---|---|---|
-| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞。近年は商用化へ大きく舵を切り(管理 UI の機能削減等)、代替を探す動きが活発 |
+| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞。近年は商用版への注力が進み、2025 年に Community Edition の Web 管理 UI が object browser 中心へ縮小された([object-browser#3509](https://github.com/minio/object-browser/pull/3509))。これを受けて代替を検討する議論も起きている([minio discussion #21320](https://github.com/minio/minio/discussions/21320)) |
 | [Ceph RGW](https://github.com/ceph/ceph) | C++ / LGPL | s3-tests 本家。互換性は最も広いが運用は重量級 |
 | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Go / Apache-2.0 | 小さいファイル大量に強い設計。S3 API はサブセット |
 | [Garage](https://git.deuxfleurs.fr/Deuxfleurs/garage) | Rust / AGPLv3 | 自宅・エッジ向けの軽量分散。地理分散前提の設計 |

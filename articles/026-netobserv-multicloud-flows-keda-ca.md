@@ -1,5 +1,5 @@
 ---
-title: "NetObserv でマルチクラウド k3s のノード間通信を観測する"
+title: "NetObserv でマルチクラウド k3s の Pod 間通信を観測する"
 emoji: "🛰️"
 type: "tech"
 topics: ["kubernetes", "k3s", "ebpf", "keda", "clusterautoscaler"]
@@ -159,7 +159,7 @@ client（rpi0 上、Pod IP `10.0.0.8`）から nginx（Azure 上、Pod IP `10.0.
 Azure 側 agent（要求の到着。nginx の veth `lxcfc89...` で観測）:
 
 ```text
-map[AgentIP:10.123.1.4 Bytes:572 DstAddr:10.0.3.150 DstPort:80 Interfaces:[lxcfc89467d8c93]
+map[AgentIP:192.0.2.34 Bytes:572 DstAddr:10.0.3.150 DstPort:80 Interfaces:[lxcfc89467d8c93]
     Packets:7 Proto:6 SrcAddr:10.0.0.8 ...]
 ```
 

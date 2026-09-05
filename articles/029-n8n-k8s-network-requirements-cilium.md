@@ -175,8 +175,8 @@ flowchart TB
 ```
 
 1. ノード負荷で k8s API サーバーの応答が遅延
-2. 共有 PostgreSQL の Patroni が DCS(k8s API)に書けず**自ら降格**(`demoting self because DCS is not accessible and I was a leader`)
-3. DB 再起動で n8n の起動(crash recovery 込み)が長引き、liveness に殺されてループ
+2. 共有 PostgreSQL の [Patroni](https://patroni.readthedocs.io/)(PostgreSQL のレプリケーションとリーダー選出を管理する HA ツール)が DCS(Distributed Configuration Store。リーダー情報を置く分散合意ストアで、この構成では k8s API がその役割)に書けず**自ら降格**(`demoting self because DCS is not accessible and I was a leader`)
+3. DB 再起動で n8n の起動(crash recovery 込み)が長引き、liveness probe に再起動されてループ
 
 対処は n8n の起動猶予を `startupProbe`(最大 10 分)に分離することでした。**ポリシー適用と同時に起きた障害でも、まず Hubble でドロップの有無を確認する**——切り分けの順序が守られていれば、疑う先を間違えません。
 

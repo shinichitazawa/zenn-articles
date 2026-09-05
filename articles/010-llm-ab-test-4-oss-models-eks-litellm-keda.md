@@ -70,9 +70,9 @@ flowchart TB
 | ① | [sarashina2.2-3b-instruct-v0.1](https://huggingface.co/sbintuitions/sarashina2.2-3b-instruct-v0.1) | SB Intuitions | MIT | 3B | 日本語特化 |
 | ② | [plamo-2-8b](https://huggingface.co/pfnet/plamo-2-8b) | Preferred Networks | PLaMo Community License（Apache 2.0 ではありません） | 8B | 日本語特化 |
 | ③ | Phi-4-mini Instruct | Microsoft | MIT | 3.8B | 128K context、多言語 |
-| ④ | GPT-OSS-20B | OpenAI | Apache 2.0 | 21B (MoE active 3.6B) | agentic/tool use 設計、MXFP4 量子化済 |
+| ④ | GPT-OSS-20B | OpenAI | Apache 2.0 | 21B (MoE※ active 3.6B) | agentic/tool use 設計、MXFP4 量子化済 |
 
-出典: 各 Hugging Face model card（2026-08 時点で取得）。
+出典: 各 Hugging Face model card（2026-08 時点で取得）。※MoE = Mixture of Experts。パラメータ全体のうち一部の expert だけを推論時に使うアーキテクチャで、詳細は後述します。
 
 :::message alert
 ①②は当初「Sarashina2.1-3B-Instruct / MIT」「PLaMo 2 8B Instruct / Apache 2.0 / HF gate なし」と記載していましたが、事実確認の結果いずれも誤りでしたので訂正しました。
@@ -91,7 +91,7 @@ CPU 推論を成立させる鍵は次の 3 つです。
 
 1. **ハードウェア行列演算命令**の活用 — [llama.cpp 公式](https://github.com/ggml-org/llama.cpp) は AVX/AVX2/AVX-512/AMX(Intel) と ARM NEON を網羅しています。本記事の Graviton3 は Arm なので効くのは NEON / SVE です（AMX は Intel 専用で Graviton には存在しません）
 2. **GGUF(llama.cpp 系の量子化モデル形式)の Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
-3. **MoE(Mixture of Experts)モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
+3. **MoE モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
 
 代表的な token/s (c7g.4xlarge Graviton3 想定。**筆者未実測**で、モデルサイズと量子化形式からの見積りです):
 
@@ -102,7 +102,7 @@ CPU 推論を成立させる鍵は次の 3 つです。
 | PLaMo 2 8B Q4_K_M | 8B | 15-25 |
 | GPT-OSS-20B MXFP4 | 21B/3.6B active | 15-25 |
 
-参考までに、人間の音読速度が約 5 tok/s、不快な「待たされ感」のボーダーが約 10 tok/s というのが筆者の経験則です(一次資料による裏付けはありません)。リアルタイム会話以外であれば CPU 推論で十分なケースが多いと言えます。
+参考までに、人間の音読速度が約 5 token/s、不快な「待たされ感」のボーダーが約 10 token/s というのが筆者の経験則です(一次資料による裏付けはありません)。リアルタイム会話以外であれば CPU 推論で十分なケースが多いと言えます。
 
 [vLLM CPU backend 公式](https://docs.vllm.ai/en/latest/getting_started/installation/cpu/) によると Graviton3 (ARM AArch64) はテスト済プラットフォームとして明記されています。
 
@@ -297,7 +297,7 @@ LiteLLM の IRSA(IAM Roles for Service Accounts) + VPC Endpoint で Bedrock を�
 
 ### コスト比較 (Bedrock Nova vs OSS self-host)
 
-[Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) (us-east-1 基準):
+[Bedrock pricing](https://aws.amazon.com/bedrock/pricing/) (us-east-1 基準。本文の呼び出し設定は ap-northeast-1 / apac.* 推論プロファイルのため、以下はあくまで参考値でリージョン単価とは異なります):
 
 | Model | input ($/1M tok) | output ($/1M tok) | 月 1000 万 input + 100 万 output 想定 |
 |---|---|---|---|
@@ -495,7 +495,7 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 - 商用 LLM API からの段階移行は LiteLLM Router を抽象化レイヤとして配置し、backend を順次差し替える形が現実的です
 - OSS LLM 4 候補を並行起動して A/B 比較するなら、EKS Auto Mode + Karpenter + KEDA scale-to-zero で月 $80 から成立します
 - モデルは商用利用可能なライセンスで選びます（①③④は Apache 2.0 / MIT。②のみ PLaMo Community License で、本文の訂正どおり例外扱いです）
-- **CPU 推論 (Graviton3 + NEON/SVE + GGUF Q4_K_M)** で 3-20B クラスは実用速度 (15-60 tok/s) に到達します
+- **CPU 推論 (Graviton3 + NEON/SVE + GGUF Q4_K_M)** で 3-20B クラスは実用速度 (15-60 token/s) に到達します
 - **Langfuse + LLM-as-judge** で品質スコアリングを自動化し、winner 決定を客観化できます
 - `telemetry: false` (BerriAI への phone-home 遮断) と OpenTelemetry callback は別物です。データ主権を取るなら前者は必ず切ってください
 

@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の3クラウドで keyless に動かす構成は、本シリーズの別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす（`021-multicloud-cluster-autoscaler-keyless-k3s`）」で扱いました。その記事では「OCI・Sakura は対象外」と断りましたが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler（以下 Cluster Autoscaler）provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
+自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の3クラウドで keyless に動かす構成は、本シリーズの別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす（`021-multicloud-cluster-autoscaler-keyless-k3s`）」で扱いました。その記事では「OCI・Sakura は対象外」と断りましたが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
 
 さくらのクラウドには AWS の Auto Scaling Group（ASG）や GCP の Managed Instance Group（MIG）に相当する「グループを 0→N に伸縮させる」プリミティブがありません。そのため、既存の多くの provider のように ASG/MIG/VMSS を薄くラップする方式は使えず、**Cluster Autoscaler 自身がサーバとディスクを1台ずつ作成・削除する**方式（[Hetzner Cloud provider](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/hetzner) と同型）で実装します。
 
@@ -22,7 +22,7 @@ published: false
 
 ## 自作の理由(さくらに ASG 相当が無い)
 
-Cluster Autoscaler の `CloudProvider` インターフェースは「NodeGroup（ノードのグループ）を伸縮させる」抽象で成り立っています。AWS provider は ASG、GCP provider は MIG、Azure provider は VMSS をそれぞれ NodeGroup にマッピングします。つまり「グループを 0→N にする API」がクラウド側にあることが前提です。
+Cluster Autoscaler の `CloudProvider` インターフェースは「NodeGroup（ノードのグループ）を伸縮させる」抽象で成り立っています。AWS provider は ASG、GCP provider は MIG、Azure provider は VMSS(Virtual Machine Scale Sets)をそれぞれ NodeGroup にマッピングします。つまり「グループを 0→N にする API」がクラウド側にあることが前提です。
 
 ```mermaid
 flowchart TB
@@ -55,7 +55,7 @@ Cluster Autoscaler がノードとグループを識別するための規約を2
 - **providerID**: `sakuracloud://<zone>/<serverName>`。kubelet の `--provider-id` に相当する値で、サーバ名で一意化します。
 - **グループ所属タグ**: `ca-group-<nodeGroupName>`。作成するサーバにこのタグを付け、一覧時にグループを逆引きします。
 
-なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（パッケージも `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動）。PR はこの新方式に合わせています。
+なお、Cluster Autoscaler の master ブランチは cloudprovider の登録方式が変わっており、`init()` 内で `builder.RegisterCloudProvider` を呼ぶ自己登録方式＋`cloudprovider/router/` の blank import に変わっています（[router パッケージの README](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/router/README.md) がこの方式を説明しており、共通パッケージも [master の go.mod](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/go.mod) が参照する `sigs.k8s.io/cluster-autoscaler/pkg/*` に移動しています。いずれも 2026-09 時点の master を参照）。PR はこの新方式に合わせています。
 
 ## ノード作成の API フロー(実測)
 
@@ -104,7 +104,7 @@ doRequest("PUT", "/server/"+serverID+"/power", nil)
 | 2 | `PUT /disk/:id/config` の直後にディスクが「変更中」に戻り、すぐ電源 ON すると 409 `disk_is_not_available` | config の後にもう一度 available を待ってから電源 ON する |
 | 3 | サーバ一覧のレスポンスに電源状態が含まれない | 削除時は常に強制停止を先行し、既に停止済みで返る 409 `power_must_be_down` は無視する |
 | 4 | 外部 IdP との OIDC federation が無い（AWS/GCP/Azure のような keyless ができない） | 静的な API キー（トークン/シークレット）を Secret で渡す |
-| 5 | 途中で失敗するとサーバ/ディスクが残ることがある | `ca-group-*` タグと `sakura-cil-*` 命名で棚卸しできるようにする |
+| 5 | 途中で失敗するとサーバ/ディスクが残ることがある | `ca-group-<ノードグループ名>` タグと `<ノードグループ名>-<乱数>` のサーバ命名で棚卸しできるようにする |
 
 癖 2 は、公式の「起動中のサーバのディスクの書き換えはできません」「作成直後は available まで利用できません」という記述の裏返しで、config 書き込みもディスクを一時的に available でない状態にする、という実測です。癖 3 の強制停止は、公式のサーバ電源オフ [`DELETE /server/:id/power`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) が `Force: true` を受け付けることに対応します。削除自体は [`DELETE /server/:id`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) に `WithDisk` でディスク ID を渡し、サーバとディスクを一括削除します。
 

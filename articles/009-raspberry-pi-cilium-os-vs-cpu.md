@@ -20,23 +20,22 @@ published: false
 
 ## 結論: 制約は 2 層に分かれる
 
-| 制約 | 層 | OS 更新で直る? | 根拠 |
-|---|---|---|---|
-| k3s が Cilium に対応しているか | ソフト（設定） | — (元から対応) | k3s / Cilium 公式手順 |
-| nodeadm の対応 OS（Ubuntu 版数） | OS | ✅ 直る | EKS 公式 OS マトリクス |
-| Cilium の kernel 要件（5.10+ / BTF） | OS（kernel） | ✅ 直る | Cilium System Requirements |
-| Armv8.2-A 命令を要求するバイナリ | CPU（シリコン） | ❌ 直らない | Arm Cortex TRM |
+| 制約 | 2 層区分 | 層の詳細 | OS 更新で直る? | 根拠 |
+|---|---|---|---|---|
+| k3s が Cilium に対応しているか | ① OS 層 | ソフト（設定） | — (元から対応) | k3s / Cilium 公式手順 |
+| nodeadm の対応 OS（Ubuntu 版数） | ① OS 層 | OS | ✅ 直る | EKS 公式 OS マトリクス |
+| Cilium の kernel 要件（5.10+ / BTF） | ① OS 層 | OS（kernel） | ✅ 直る | Cilium System Requirements |
+| Armv8.2-A 命令を要求するバイナリ | ② CPU 層 | CPU（シリコン） | ❌ 直らない | Arm Cortex TRM |
 
 上 3 つは OS / kernel / 設定の話なので、適切な OS を入れれば解決します。最後の 1 つだけは CPU の世代に焼き付いた制約で、OS をいくら新しくしても命令セットは生えません。ここを混同しないことが本記事の主題です。
 
 図にすると、制約は次の 2 層に分かれ、CPU 層だけが OS 更新で越えられない壁になります。
 
 ```mermaid
-flowchart TD
+flowchart TB
   Q["Raspberry Pi で<br/>Cilium / EKS Hybrid Nodes を動かしたい"] --> L1
 
   subgraph L1["① OS層の制約 — OS更新で直る ✅"]
-    direction LR
     A1["nodeadm 対応OS<br/>Ubuntu 24.04 arm64 化"]
     A2["Cilium kernel要件<br/>5.10+ / BTF 有効"]
   end
@@ -44,7 +43,6 @@ flowchart TD
   L1 --> L2
 
   subgraph L2["② CPU層の制約: Armv8.2-A — OS更新で直らない ❌"]
-    direction LR
     P3["Pi 3<br/>Cortex-A53<br/>Armv8-A"]
     P4["Pi 4<br/>Cortex-A72<br/>Armv8-A"]
     P5["Pi 5<br/>Cortex-A76<br/>Armv8.2-A"]

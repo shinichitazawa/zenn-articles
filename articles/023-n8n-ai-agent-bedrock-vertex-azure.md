@@ -143,7 +143,7 @@ Vertex Chat Model ノードのパラメータは [公式ドキュメント](http
 >
 > — [vertex-location.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/gemini-common/vertex-location.ts)
 
-![Google Vertex Chat Model の設定画面](/images/n8n-sample-vertex-params.png)
+![Google Vertex Chat Model の設定画面。Bedrock には無い Project ID と Region(Default・Global・EU・US)、Model Name の入力欄が並ぶ](/images/n8n-sample-vertex-params.png)
 *Google Vertex Chat Model。Bedrock には無い Project ID と Region(ここでは Global)の欄がある*
 
 モデル名の既定値はソース上 `gemini-2.5-flash` です。Bedrock と違い、AWS でいう「アカウント」に相当するプロジェクト ID をノード側で指定する点が構成上の違いになります。
@@ -158,16 +158,10 @@ Azure が最も独特です。Azure OpenAI ではモデルを「デプロイ」�
 
 n8n 側もこれに追従しており、資格情報のドキュメントには「リソースをデプロイしたら、この資格情報を使う Azure OpenAI ノードでは Deployment name をモデル名として使う」と記載されています([Azure OpenAI credentials](https://docs.n8n.io/integrations/builtin/credentials/azureopenai/))。
 
-この方針は UI にも表れており、入力欄のラベル自体が「Model (Deployment) Name」になっています(上のスクリーンショット)。Bedrock や Vertex が単に「Model」「Model Name」であるのと対照的で、n8n 側も「ここはモデル名ではない」と明示していることが分かります。
+この方針は UI にも表れており、入力欄のラベル自体が「Model (Deployment) Name」になっています(次のスクリーンショット)。Bedrock や Vertex が単に「Model」「Model Name」であるのと対照的で、n8n 側も「ここはモデル名ではない」と明示していることが分かります。
 
-![Azure OpenAI Chat Model の設定画面](/images/n8n-sample-azure-params.png)
+![Azure OpenAI Chat Model の設定画面。入力欄のラベルが「Model (Deployment) Name」となっており、モデル名ではなくデプロイ名を求めている](/images/n8n-sample-azure-params.png)
 *Azure OpenAI Chat Model。項目名が「Model (Deployment) Name」であり、モデル名ではなくデプロイ名を入れることが UI 上も明示されている*
-
-実際のノードでは、パラメータのラベル自体が `Model (Deployment) Name` になっています。型定義の説明も次のとおりで、UI を開いた時点で「モデル名ではない」と分かる作りです。
-
-> The name of the model(deployment) to use (e.g., gpt-4, gpt-35-turbo)
->
-> — Azure OpenAI Chat Model ノード(v1)の型定義より
 
 つまり Azure では n8n を触る前に Azure 側でデプロイを作る作業が前提になり、しかもフロー中の「モデル名」は自分が付けた任意の名前になります。他プロバイダのフローを見比べたときに、ここだけ意味論が違う点は運用上、混乱のもとになり得ます。
 

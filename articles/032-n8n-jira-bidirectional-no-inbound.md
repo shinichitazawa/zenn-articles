@@ -71,7 +71,7 @@ Jira Cloud の Webhook は、[公式ドキュメント](https://developer.atlass
 
 登録は管理 UI・REST API・Automation のいずれでもでき、`jira:issue_created` や `jira:issue_updated` などのイベントを送れます。ただし**受け口はインターネットから到達できる HTTPS でなければなりません**。これは、自宅 Kubernetes クラスタにインターネット側からの着信経路を作ることを意味します。
 
-そこで、別記事「n8n 検証環境の通信要件を洗い出して Cilium ポリシーで固める」で GitHub イベント用に組んだ中継をそのまま使いました。**Jira の Webhook を AWS 側(API Gateway + SQS)で受け、クラスタは外向きにキューを取りに行く**構成です。クラスタへの着信経路はゼロのままになります。
+そこで、別記事「n8n 検証環境の通信要件を洗い出して Cilium ポリシーで固める」(`029-n8n-k8s-network-requirements-cilium`)で GitHub イベント用に組んだ中継をそのまま使いました。**Jira の Webhook を AWS 側(API Gateway + SQS)で受け、クラスタは外向きにキューを取りに行く**構成です。クラスタへの着信経路はゼロのままになります。
 
 ```mermaid
 flowchart TB

@@ -29,7 +29,7 @@ published: false
 ## 全体構成
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph クラスタ内
     W[Whisper<br/>faster-whisper small<br/>CPU int8]
     N[n8n]
@@ -81,7 +81,7 @@ flowchart TB
 
 - **モデルキャッシュを PVC に置く**。small モデルは初回に約 462MB をダウンロードするため(実測)、Pod 再起動のたびに落とし直さないよう永続化する
 - **ClusterIP のみで公開しない**。音声とその文字起こしを外に出さないため、Ingress を付けず n8n からのみ到達させる
-- **リソース制限を慎重に決める**。ここで2回事故を起こしました(後述)
+- **リソース制限を慎重に決める**。ここで 2 回問題を起こしました(後述)
 
 ## テスト音声の作り方(台本を正解データにする)
 
@@ -169,7 +169,7 @@ flowchart TB
 
 ## 同期 API の 5 分制限と非同期化
 
-ここで想定外の問題を踏みました。Whisper の `/asr` は**処理が終わるまで一切応答しない**同期 API で、71 秒の音声の処理に約 313 秒かかったところ(CPU 1 コア制限時の実測)、n8n の HTTP Request が **313 秒で `socket hang up`** になりました。ノードの timeout を 30 分にしても変わりません。
+ここで想定外の問題に直面しました。Whisper の `/asr` は**処理が終わるまで一切応答しない**同期 API で、71 秒の音声の処理に約 313 秒かかったところ(CPU 1 コア制限時の実測)、n8n の HTTP Request が **313 秒で `socket hang up`** になりました。ノードの timeout を 30 分にしても変わりません。
 
 原因は Node.js の HTTP クライアント(undici)の既定値です。[undici の Client オプション](https://github.com/nodejs/undici/blob/main/docs/docs/api/Client.md)より:
 
@@ -180,7 +180,7 @@ flowchart TB
 対処として、Whisper の Pod に**非同期の受付シム**(FastAPI 約 40 行)を同居させました。受付は即座に `job_id` を返し、裏で `/asr` を呼んで結果をファイルに保存、別エンドポイントで取得できるようにします。n8n 側は次のループになります。
 
 ```mermaid
-flowchart LR
+flowchart TB
   S[投入 POST /jobs<br/>即応答] --> W[Wait 30秒]
   W --> P[GET /jobs/id<br/>即応答]
   P --> C{status}
@@ -191,25 +191,25 @@ flowchart LR
 
 各リクエストが秒で返るためヘッダ待ちの制限に当たらず、音声の長さに関係なく動きます。あわせてワークフローの実行タイムアウトを 1 時間に設定し、ジョブが返らない場合の無限ループを止めています。
 
-## Kubernetes 側で踏んだ 2 つの事故
+## Kubernetes 側で発生した 2 つの問題
 
 ```mermaid
 flowchart TB
-  subgraph i1[事故 1 CPU 逼迫の連鎖]
+  subgraph i1[問題 1 CPU 逼迫の連鎖]
     A1[Whisper が CPU 3 コアで文字起こし] --> A2[コントロールプレーンのノードが逼迫]
     A2 --> A3[同居する共有 PostgreSQL への接続断]
     A3 --> A4[n8n が 503]
   end
-  subgraph i2[事故 2 liveness による kill]
+  subgraph i2[問題 2 liveness による kill]
     B1[単一ワーカーが処理を占有] --> B2[httpGet probe が毎回 timeout]
     B2 --> B3[開始 5 分で kubelet がコンテナを kill]
   end
   A4 ~~~ B1
 ```
 
-**1. 文字起こしがコントロールプレーンを巻き込んだ。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)(`preemptionPolicy: Never`)に落とし、逼迫時はデータベースより先に Whisper が止められる設定にしています。代償として処理時間は音声長の約 4.4 倍です。
+**1. 文字起こしがコントロールプレーンを巻き込んだ。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)に落としました。PriorityClass は Pod の重要度を宣言してノード逼迫時にどれから退避するかを決める Kubernetes の仕組みで、`preemptionPolicy: Never`(自分のために他の Pod を追い出さない設定)と組み合わせ、逼迫時はデータベースより先に Whisper が止められるようにしています。代償として処理時間は音声長の約 4.4 倍です。
 
-**2. liveness probe が処理中の Whisper を殺した。** `httpGet` の liveness probe(timeout 1 秒 × 60 秒間隔 × 5 回)を付けていたところ、文字起こし中は単一ワーカーが処理を占有して HTTP に応答できず、**開始からちょうど 5 分で kubelet がコンテナを kill** しました(実測)。probe を [tcpSocket](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) に変更して解決しています。TCP の接続確認はカーネルが受け付ける限り成功するため、アプリが忙しくても生存と判定できます。
+**2. liveness probe が処理中の Whisper を停止させた。** liveness probe は kubelet がコンテナの生存を定期確認し、失敗が続くとコンテナを再起動する仕組みです。`httpGet`(HTTP で確認する方式)の liveness probe(timeout 1 秒 × 60 秒間隔 × 5 回)を付けていたところ、文字起こし中は単一ワーカーが処理を占有して HTTP に応答できず、**開始からちょうど 5 分で kubelet がコンテナを kill** しました(実測)。probe を [tcpSocket](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)(HTTP 応答ではなく TCP 接続の成立だけを確認する方式)に変更して解決しています。TCP の接続確認はカーネルが受け付ける限り成功するため、アプリが忙しくても生存と判定できます。
 
 ## Slack 投稿と ToDo 管理
 
