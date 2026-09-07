@@ -1,5 +1,5 @@
 ---
-title: "Raspberry Pi の Cilium — OS 層と CPU 世代のどちらが原因か"
+title: "Raspberry Pi で Cilium が動かない原因は OS か CPU か"
 emoji: "🍓"
 type: "tech"
 topics: ["raspberrypi", "cilium", "kubernetes", "arm64", "eks"]

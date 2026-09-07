@@ -1,5 +1,5 @@
 ---
-title: "AI エージェントではなく境界に枷をかける — 非決定的な実行に決定的な制限を課す"
+title: "AI エージェントではなく境界に枷をかける"
 emoji: "🚧"
 type: "idea"
 topics: ["ai", "agent", "cedar", "dogwood", "security"]

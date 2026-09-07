@@ -1,5 +1,5 @@
 ---
-title: "n8n と Jira を双方向でつなぐ — 発行は直、受信は穴を開けない"
+title: "着信経路を作らずに n8n と Jira を双方向連携する"
 emoji: "🔁"
 type: "tech"
 topics: ["n8n", "jira", "kubernetes", "webhook", "automation"]

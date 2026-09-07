@@ -1,5 +1,5 @@
 ---
-title: "「S3」はもはやサービス名ではなくプロトコルである — S3 互換 API の実像を一次情報で辿る"
+title: "S3 はもはやサービス名ではなくプロトコルである"
 emoji: "🪣"
 type: "tech"
 topics: ["s3", "aws", "objectstorage", "sakuracloud", "minio"]

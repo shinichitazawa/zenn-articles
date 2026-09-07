@@ -1,5 +1,5 @@
 ---
-title: "Kro と Crossplane、どちらを選ぶか — 複合リソースと宣言的クラウド管理"
+title: "Kro と Crossplane の選び方"
 emoji: "🧩"
 type: "tech"
 topics: ["kubernetes", "kro", "crossplane", "kustomize", "iac"]

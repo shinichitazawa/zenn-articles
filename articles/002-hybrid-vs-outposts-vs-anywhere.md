@@ -1,5 +1,5 @@
 ---
-title: "EKS Hybrid Nodes / Outposts / Anywhere の境界線"
+title: "EKS Hybrid Nodes / Outposts / Anywhere の使い分け"
 emoji: "⚖️"
 type: "tech"
 topics: ["aws", "eks", "outposts", "eksanywhere", "kubernetes"]

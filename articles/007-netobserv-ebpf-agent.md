@@ -1,5 +1,5 @@
 ---
-title: "NetObserv eBPF Agent — CNI 非依存のネットワーク観測"
+title: "NetObserv eBPF Agent による CNI 非依存のフロー観測"
 emoji: "🔭"
 type: "tech"
 topics: ["ebpf", "kubernetes", "networking", "observability", "netobserv"]

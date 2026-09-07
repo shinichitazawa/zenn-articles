@@ -1,5 +1,5 @@
 ---
-title: "AWS の時系列ポリシー言語 Dogwood を実測して自作の状態遷移ガードと判定を突き合わせる"
+title: "Dogwood の時系列ポリシーを自作の状態遷移ガードと実測で比較する"
 emoji: "🌸"
 type: "tech"
 topics: ["dogwood", "cedar", "n8n", "aws", "agentcore"]

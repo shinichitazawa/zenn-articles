@@ -1,5 +1,5 @@
 ---
-title: "33B 動画生成モデルを動かしたい — クラウド GPU と購入の性能・コスト比較(2026-08 実測)"
+title: "33B 動画生成モデルを動かす GPU を借りるか買うか(2026-08 実測)"
 emoji: "🎛️"
 type: "tech"
 topics: ["gpu", "cloud", "ai", "sakuracloud", "gcp"]

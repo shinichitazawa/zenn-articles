@@ -1,5 +1,5 @@
 ---
-title: "eBPF flow で Tailscale の接続確立を実測解剖する(DERP/STUN/直結WireGuard)"
+title: "eBPF flow で見る Tailscale の接続確立(DERP / STUN / 直結 WireGuard)"
 emoji: "🔎"
 type: "tech"
 topics: ["tailscale", "ebpf", "netobserv", "kubernetes", "wireguard"]
