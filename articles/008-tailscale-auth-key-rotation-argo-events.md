@@ -455,7 +455,7 @@ session.client("autoscaling").start_instance_refresh(
 )
 ```
 
-複数台の冗長 ASG では当然 `MinHealthyPercentage=90` 等を使う。bastion のように「短時間の disconnection を許容できる single-node」だけが 0 で OK。
+複数台の冗長 ASG では通常 `MinHealthyPercentage=90` 等を使う。bastion のように「短時間の disconnection を許容できる single-node」だけが 0 で OK。
 
 [^5]: [Amazon EC2 Auto Scaling: Start an instance refresh](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) — `MinHealthyPercentage` / `InstanceWarmup` は Preferences の JSON フィールド
 

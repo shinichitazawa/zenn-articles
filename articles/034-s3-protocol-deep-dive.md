@@ -1,5 +1,5 @@
 ---
-title: "S3 はもはやサービス名ではなくプロトコルである"
+title: "S3 はサービス名からプロトコル名になった"
 emoji: "🪣"
 type: "tech"
 topics: ["s3", "aws", "objectstorage", "sakuracloud", "minio"]
@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-さくらの高火力 DOK で生成 AI モデルを動かす検証中に、モデルキャッシュ置き場として**さくらのオブジェクトストレージ**(`https://s3.isk01.sakurastorage.jp`)を使うことになりました。エンドポイントに「s3」と入っているのに AWS は一切関係ない — この「S3 なのに AWS ではない」状況はいまや当たり前になっていますが、ではその「S3 互換」とは正確に何を指すのか。仕様書はあるのか、どこまで互換なら「互換」を名乗れるのか、壊れるとしたらどこから壊れるのか。本記事は S3 を**プロトコルとして**一次情報(AWS 公式ドキュメント、GitHub 上の実装と互換性テスト)で整理したものです。
+さくらの高火力 DOK で生成 AI モデルを動かす検証中に、モデルキャッシュ置き場として**さくらのオブジェクトストレージ**(`https://s3.isk01.sakurastorage.jp`)を使うことになりました。エンドポイントに「s3」と入っていますが、AWS のサービスではありません。このように AWS 以外の「S3 互換」ストレージは広く使われていますが、その「互換」が具体的に何を指すのかを、筆者は説明できませんでした。仕様書は存在するのか、どの範囲の API が動けば「互換」と言えるのか、互換性が失われるのはどのような場合か。本記事はこれらを、 S3 を**プロトコルとして**一次情報(AWS 公式ドキュメント、GitHub 上の実装と互換性テスト)で整理したものです。
 
 - 想定読者: S3 互換ストレージ(さくら、Cloudflare R2、MinIO 等)を使う・選定する開発者
 - 調査時点: 2026-08。リンク先の仕様・数値は変わり得ます
@@ -19,16 +19,16 @@ published: false
 
 ## 1. 正式な仕様書は存在しない
 
-まず一番大事な事実から。**S3 プロトコルには IETF RFC のような中立の標準仕様が存在しません。** あるのは AWS の [Amazon S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html) だけで、これは「AWS のサービスのリファレンス」であって、互換実装のための契約書ではありません。
+最初に押さえておきたいのは、**S3 プロトコルには IETF RFC のような中立の標準仕様が存在しない**ことです。 あるのは AWS の [Amazon S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html) だけで、これは「AWS のサービスのリファレンス」であって、互換実装のための契約書ではありません。
 
-にもかかわらず S3 API は事実上の標準になりました。これは意見ではなく、**競合他社の公式ドキュメントが自ら「S3 互換」を謳っている**ことで確認できる事実です:
+にもかかわらず S3 API は事実上の標準になりました。このことは、**競合他社の公式ドキュメントが自ら「S3 互換」を謳っている**ことから確認できます:
 
 - Google Cloud Storage — [XML API の S3 互換運用(公式)](https://cloud.google.com/storage/docs/interoperability)
 - Cloudflare R2 — [S3 API compatibility(公式)](https://developers.cloudflare.com/r2/api/s3/api/)
 - Backblaze B2 — [S3 Compatible API(公式)](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api)
 - さくらのオブジェクトストレージ — [Amazon S3 互換 API(公式マニュアル)](https://manual.sakura.ad.jp/cloud/objectstorage/about.html)
 
-自社ネイティブ API を持つ Google までが S3 互換 API を併設している点に、この API の支配力が表れています。結果として「AWS が API を変えると、互換実装がそれを追いかける」という**片務的な標準化**が 20 年続いており、この構造が後述の 2025 年の互換性破壊を生みます。
+自社ネイティブ API を持つ Google までが S3 互換 API を併設している点に、この API の影響力の大きさが表れています。結果として「AWS が API を変えると、互換実装がそれを追いかける」という**片務的な標準化**が 20 年続いており、この構造が後述の 2025 年の互換性破壊を生みます。
 
 ## 2. プロトコルの解剖
 
@@ -90,7 +90,7 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 ## 4. ケーススタディ: 2025 年 1 月、AWS SDK の更新で互換実装が一斉に動作不能になった
 
-「片務的な標準」の脆さが露呈した最近の実例です。
+「片務的な標準」の弱点が表面化した最近の実例です。
 
 - 2024-12: AWS が S3 の[デフォルトのデータ整合性保護](https://aws.amazon.com/about-aws/whats-new/2024/12/amazon-s3-default-data-integrity-protections)を発表 — アップロード時に CRC32/CRC64NVME チェックサム(転送中のデータ破損を検出するための誤り検出符号)を自動付与
 - 2025-01: 各言語の AWS SDK がこれを**デフォルト有効**でリリース([aws-sdk-go-v2 の告知](https://github.com/aws/aws-sdk-go-v2/discussions/2960)等)
@@ -98,7 +98,7 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 回避策として SDK には `when_required` 設定(環境変数 `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` / `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`)が用意されました([AWS 公式: Data Integrity Protections](https://docs.aws.amazon.com/sdkref/latest/guide/feature-dataintegrity.html))。互換サービス各社はチェックサム対応を急ぐことになりました。
 
-教訓は明確で、**「S3 互換」は静的な性質ではなく、AWS の変更に追従し続ける動的なプロセス**だということ。互換ストレージを使うシステムでは、AWS SDK のバージョンアップが「自分は AWS を使っていないのに」破壊的変更になり得ます。
+ここから分かるのは、**「S3 互換」は静的な性質ではなく、AWS の変更に追従し続ける動的なプロセス**だということです。互換ストレージを使うシステムでは、AWS SDK のバージョンアップが「自分は AWS を使っていないのに」破壊的変更になり得ます。
 
 ## 5. 実務ガイド: 互換ストレージと付き合う設定
 
@@ -127,7 +127,7 @@ export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 
 - S3 に中立の標準仕様はない。AWS の API リファレンスが「仕様」で、互換実装がそれを追いかける片務的標準
 - 認証の本体は SigV4。エンドポイント差し替え + path-style + SigV4 が「S3 互換」利用の 3 要素
-- 互換性はグラデーション。適合試験に相当するものは [ceph/s3-tests](https://github.com/ceph/s3-tests)(それ自体 unofficial)しかなく、実装ごとの対応 API 差は各公式ドキュメントで確認するしかない
+- 互換性はグラデーション。適合試験に相当するものは [ceph/s3-tests](https://github.com/ceph/s3-tests)(それ自体 unofficial)が事実上唯一で、実装ごとの対応 API 差は各公式ドキュメントで確認する必要がある
 - 2025 年のチェックサム問題が示す通り、互換性は「維持し続ける作業」。SDK 更新は互換ストレージ利用者にとって破壊的変更になり得る
 - ホスト名の「s3」はプロトコル名。`s3.isk01.sakurastorage.jp` は AWS と無関係のさくらのサービスであり、それでも aws CLI がそのまま使えるのがこの生態系の到達点
 
