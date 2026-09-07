@@ -57,7 +57,7 @@ virtual-hosted: https://{bucket}.s3.isk01.sakurastorage.jp/key
 path-style:     https://s3.isk01.sakurastorage.jp/{bucket}/key
 ```
 
-AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style の方が安全牌**です(ワイルドカード TLS 証明書が不要なため対応が確実)。クライアント側では `force_path_style` 系の設定で明示できます。
+AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style を選ぶのが確実**です(ワイルドカード TLS 証明書が不要で、実装側の対応漏れが起きにくいため)。クライアント側では `force_path_style` 系の設定で明示できます。
 
 ### 2.4 その他の主要メカニズム
 
