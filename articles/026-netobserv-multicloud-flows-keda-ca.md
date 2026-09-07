@@ -85,7 +85,7 @@ spec:
         desiredReplicas: "1"
 ```
 
-起こされた Pod は（Azure の例では）`nodeSelector: cloud=azure` を要求し、該当ノードが 0 台なので Pending になります。ここから先は別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす」（`021-multicloud-cluster-autoscaler-keyless-k3s`）で構築した scale-from-0 がそのまま働きます。VMSS に付けた node-template タグ（[Azure provider の規約](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/azure/README.md)で `/` を `_` に置換したもの）を読んで、Cluster Autoscaler が「このグループなら賄える」と判断します。
+起こされた Pod は（Azure の例では）`nodeSelector: cloud=azure` を要求し、該当ノードが 0 台なので Pending になります。ここから先は別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす」（準備中）で構築した scale-from-0 がそのまま働きます。VMSS に付けた node-template タグ（[Azure provider の規約](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/azure/README.md)で `/` を `_` に置換したもの）を読んで、Cluster Autoscaler が「このグループなら賄える」と判断します。
 
 実際のイベントとタイムラインです（筆者環境の記録。JST）。
 

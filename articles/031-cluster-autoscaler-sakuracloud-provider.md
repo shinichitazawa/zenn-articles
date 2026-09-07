@@ -3,12 +3,12 @@ title: "Cluster Autoscaler のさくらクラウド provider を自作する"
 emoji: "🌸"
 type: "tech"
 topics: ["sakuracloud", "kubernetes", "clusterautoscaler", "go", "cloud"]
-published: false
+published: true
 ---
 
 ## はじめに
 
-自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の3クラウドで keyless に動かす構成は、本シリーズの別記事「自前 k3s の Cluster Autoscaler を 3 クラウドで keyless に動かす（`021-multicloud-cluster-autoscaler-keyless-k3s`）」で扱いました。その記事では「OCI・Sakura は対象外」と断りましたが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
+自前 k3s の [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md) を AWS / GCP / Azure の 3 クラウドで keyless に動かす構成は、本シリーズの別記事として準備中です。そちらでは OCI とさくらのクラウドを対象外にしていますが、本記事はその積み残しのうち、さくらのクラウド向けの Cluster Autoscaler provider を**自作する話**です。さくらには後述のとおりオートスケールの土台となるグループ抽象が無いため、provider 自身がサーバを作成・削除する設計になります。実装は upstream（kubernetes/autoscaler）にも PR として出しました。
 
 さくらのクラウドには AWS の Auto Scaling Group（ASG）や GCP の Managed Instance Group（MIG）に相当する「グループを 0→N に伸縮させる」プリミティブがありません。そのため、既存の多くの provider のように ASG/MIG/VMSS を薄くラップする方式は使えず、**Cluster Autoscaler 自身がサーバとディスクを1台ずつ作成・削除する**方式（[Hetzner Cloud provider](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/hetzner) と同型）で実装します。
 
@@ -108,7 +108,7 @@ doRequest("PUT", "/server/"+serverID+"/power", nil)
 
 挙動 2 は、公式の「起動中のサーバのディスクの書き換えはできません」「作成直後は available まで利用できません」という記述の裏返しで、config 書き込みもディスクを一時的に available でない状態にする、という実測です。挙動 3 の強制停止は、公式のサーバ電源オフ [`DELETE /server/:id/power`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) が `Force: true` を受け付けることに対応します。削除自体は [`DELETE /server/:id`](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html) に `WithDisk` でディスク ID を渡し、サーバとディスクを一括削除します。
 
-挙動 4 は他の3クラウドとの大きな違いです。AWS/GCP/Azure では自前 OIDC issuer で keyless にできましたが（別記事 `021`）、さくらは静的 API キーが必要でした。[公式マニュアルの API キー](https://manual.sakura.ad.jp/cloud/api/apikey.html)に記載された認証方式はアクセストークンとアクセストークンシークレットのみで、外部 IdP との OIDC federation に相当する仕組みの記載はありません（2026-09 時点）。
+挙動 4 は他の3クラウドとの大きな違いです。AWS/GCP/Azure では自前 OIDC issuer で keyless にできましたが（前述の 3 クラウド構成）、さくらは静的 API キーが必要でした。[公式マニュアルの API キー](https://manual.sakura.ad.jp/cloud/api/apikey.html)に記載された認証方式はアクセストークンとアクセストークンシークレットのみで、外部 IdP との OIDC federation に相当する仕組みの記載はありません（2026-09 時点）。
 
 ## 検証(KEDA → Cluster Autoscaler → さくら 0→1→0)
 
@@ -136,9 +136,9 @@ CA が 0→1 判断  → ディスク作成 → available 待ち → サーバ�
 | PR | 内容 |
 |---|---|
 | [#10146](https://github.com/kubernetes/autoscaler/pull/10146) | sakuracloud provider の新規追加（provider 本体 + テスト + OWNERS + README + FAQ） |
-| [#10145](https://github.com/kubernetes/autoscaler/pull/10145) | 混在 providerID で GCE provider が停止する不具合の修正（ハイブリッド構成で他クラウドのノードが混ざると顕在化） |
+| [#10220](https://github.com/kubernetes/autoscaler/pull/10220) | 混在 providerID で GCE provider が停止する不具合の修正（ハイブリッド構成で他クラウドのノードが混ざると顕在化。当初の #10145 を履歴の問題で作り直したもの） |
 
-新規 provider を upstream に入れる場合、その provider の継続的なメンテナンス（Cloudprovider Maintenance Request の枠組み）を担う前提になります。レビューの過程で SIG Autoscaling の合意が要る点も、社内利用のフォーク運用とは異なる部分です。
+新規 provider を upstream に入れる場合、その provider の開発と継続的なメンテナンスは提出者(cloudprovider owner)が担う前提で、core maintainer は provider 固有のコードには基本的に関与しません（[cloudprovider/POLICY.md](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/POLICY.md)、2026-09 取得）。レビューの過程で SIG Autoscaling の合意が要る点も、社内利用のフォーク運用とは異なる部分です。
 
 ## まとめ
 
@@ -156,5 +156,4 @@ CA が 0→1 判断  → ディスク作成 → available 待ち → サーバ�
 - [Cluster Autoscaler FAQ / cloudprovider](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md)
 - [Cluster Autoscaler: Hetzner cloudprovider（実装モデル）](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/cloudprovider/hetzner)
 - [PR #10146: add SAKURA cloud (sakuracloud) cloud provider](https://github.com/kubernetes/autoscaler/pull/10146)
-- provider 実装（フォーク）: [github.com/shinichitazawa/autoscaler](https://github.com/shinichitazawa/autoscaler)（`cluster-autoscaler-1.35.0` ツリー）
-- 検証時の構成ファイル: [k8s-deploy-public/netobserv 配下の検証フィクスチャ](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/netobserv)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) の main 時点。API キー等の環境固有値はダミーに置換済み）
+- provider 実装（フォーク）: [shinichitazawa/autoscaler の `sakuracloud-provider` ブランチ](https://github.com/shinichitazawa/autoscaler/tree/sakuracloud-provider/cluster-autoscaler/cloudprovider/sakuracloud)（PR #10146 の head。README と設定例を含む）
