@@ -57,7 +57,7 @@ virtual-hosted: https://{bucket}.s3.isk01.sakurastorage.jp/key
 path-style:     https://s3.isk01.sakurastorage.jp/{bucket}/key
 ```
 
-AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style を選ぶのが確実**です(ワイルドカード TLS 証明書が不要で、実装側の対応漏れが起きにくいため)。クライアント側では `force_path_style` 系の設定で明示できます。
+AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style を使います**(ワイルドカード TLS 証明書が不要で、実装側の対応漏れが起きにくいため)。クライアント側では `force_path_style` 系の設定で明示できます。
 
 ### 2.4 その他の主要メカニズム
 
@@ -74,7 +74,7 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of **unofficial** Amazon AWS S3 compatibility tests」と明記しているとおり、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースを実装に対して実行します。
 
-対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、「S3 互換」という表示ではなく「自分が使う API サブセットで s3-tests を実行した結果」を見るのが確実です。
+対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、「S3 互換」という表示ではなく「自分が使う API サブセットで s3-tests を実行した結果」で判断します。
 
 ### 3.2 主要なオープンソース実装
 
@@ -119,7 +119,7 @@ export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 選定時のチェックリスト:
 
 1. **SigV4 対応か**(2026 年現在、非対応は選定対象外)
-2. **使う API のサブセットが動くか** — 一覧・PUT/GET・multipart・presigned まで確認すれば大半のワークロードは足りる。s3-tests を自分で回すのが確実
+2. **使う API のサブセットが動くか** — 一覧・PUT/GET・multipart・presigned まで確認すれば大半のワークロードは足りる。s3-tests を自分で実行して確認する
 3. **整合性モデル** — AWS の強整合を前提にしたコード(書いた直後に読む)が互換先でも成立するか
 4. **新しめの API(条件付き書き込み、チェックサム等)への依存を避ける** — 互換実装が追いつくまでのタイムラグが常にある
 
