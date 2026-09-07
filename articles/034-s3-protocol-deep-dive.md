@@ -19,7 +19,7 @@ published: false
 
 ## 1. 正式な仕様書は存在しない
 
-最初に押さえておきたいのは、**S3 プロトコルには IETF RFC のような中立の標準仕様が存在しない**ことです。 あるのは AWS の [Amazon S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html) だけで、これは「AWS のサービスのリファレンス」であって、互換実装のための契約書ではありません。
+**S3 プロトコルには IETF RFC のような中立の標準仕様が存在しません。** あるのは AWS の [Amazon S3 API Reference](https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html) だけで、これは「AWS のサービスのリファレンス」であって、互換実装のための契約書ではありません。
 
 にもかかわらず S3 API は事実上の標準になりました。このことは、**競合他社の公式ドキュメントが自ら「S3 互換」を謳っている**ことから確認できます:
 
