@@ -39,6 +39,7 @@ published: false
 日本の領収書によくある要素を入れた画像を用意しました。これを3つすべてに同じ条件で読ませています。
 
 ![検証に使った合成領収書。表題「領収書」、宛名「株式会社◯◯ 御中」、金額 ¥18,700、10% と 8% の複数税率、適格請求書発行事業者の登録番号、発行元の店名・住所・電話番号が印字されている](/images/024-receipt-sample.png)
+*検証に使った合成領収書。宛名・合計 ¥18,700・10%/8% の複数税率・登録番号・発行元情報を 1 枚に含めている*
 
 含めた要素は次のとおりです。
 
@@ -92,7 +93,7 @@ LineItemGroups: (空)
 
 これは不具合ではなく、**仕様どおり**です。Amazon Textract の FAQ には対応言語がこう書かれています。
 
-> Amazon Textract can extract printed text, forms and tables in English, German, French, Spanish, Italian and Portuguese. Amazon Textract also extracts explicitly labeled data, implied data, and line items from an itemized list of goods or services from almost any invoice or receipt **in English** without any templates or configuration.
+> Amazon Textract can extract printed text, forms and tables in English, German, French, Spanish, Italian and Portuguese. Amazon Textract also extracts explicitly labeled data, implied data, and line items from an itemized list of goods or services from almost any invoice or receipt in English without any templates or configuration.
 >
 > — [Amazon Textract FAQs](https://aws.amazon.com/textract/faqs/)
 
@@ -111,13 +112,14 @@ Nova Lite はマルチモーダルモデルです。[Amazon Nova のモデル仕
 
 出典: [What is Amazon Nova?](https://docs.aws.amazon.com/nova/latest/userguide/what-is-nova.html)(2026-08 時点で取得。Amazon Nova V1 のユーザーガイドです。後継の [Amazon Nova 2](https://docs.aws.amazon.com/nova/latest/nova2-userguide/whats-new.html) は別ガイドで、本記事では検証していません)
 
-**Nova Micro はテキスト専用**なので画像は扱えません。画像を読ませるなら Lite 以上が必要です。Nova Lite は公式に「low-cost multimodal model that processes text, images, and video inputs for tasks like **document analysis** and visual Q&A」と位置づけられています([Nova Lite モデルカード](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-lite.html))。
+**Nova Micro はテキスト専用**なので画像は扱えません。画像を読ませるなら Lite 以上が必要です。Nova Lite は公式に「low-cost multimodal model that processes text, images, and video inputs for tasks like document analysis and visual Q&A」と位置づけられています([Nova Lite モデルカード](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-lite.html))。
 
 しかし実測では、発行元として**画像のどこにも存在しない社名**を出力しました。宛名(株式会社◯◯ 御中)でもありません。
 
 これは「一発で読み取りと解釈を同時にやらせたせいでは」と考え、工程を2段に分けて再検証しました。
 
 ![Nova Lite に逐語転記させ、その転記テキストから Nova Micro が項目を抽出し、コードが両者を照合する2段構成のワークフロー](/images/024-a5v2-canvas.png)
+*2 段構成のワークフロー。Nova Lite(逐語転記)→ Nova Micro(項目抽出)→ Code ノード(転記テキストとの照合)の順に並ぶ*
 
 1. Nova Lite に**逐語転記だけ**させる(「解釈・要約・補完を一切しない」「画像に無い語を絶対に書かない」と明示)
 2. 転記テキストから項目を抽出する
@@ -179,6 +181,7 @@ aws bedrock list-foundation-models --region ap-northeast-1 \
 LLM(Large Language Model)なら同じ1回の呼び出しで種別判定まで含められます。実際に組んだのが次の構成です。読み取りと種別判定を1つのエージェントで行い、コードで検証したうえで、判定結果に応じて経費精算・支払管理・案件管理・要人手確認へ振り分けています。
 
 ![Claude が帳票種別を判定して読み取り、コードで検証したのち種別ごとに振り分けるワークフロー](/images/024-a6-canvas.png)
+*帳票振り分けワークフロー。Claude のエージェント 1 つで種別判定と読み取りを行い、Code ノードで検証したあと、経費精算・支払管理・案件管理・要人手確認の 4 経路に分岐する*
 
 指示は次のような内容です。
 

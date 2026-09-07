@@ -48,7 +48,7 @@ Memory と Tool はプロバイダに依存しないため、プロバイダを�
 
 ### AWS Bedrock
 
-n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/builtin/credentials/aws)あります。アクセスキーを使う AWS (IAM) と、AWS STS(Security Token Service)でロールを引き受ける AWS (Assume Role) です。後者のフィールドは Region / Role ARN / External ID(渡したロールを意図しない第三者が流用する confused deputy 問題への対策として、信頼ポリシー側と突き合わせる値)/ Role Session Name で、STS を呼ぶ側の資格情報として Use System Credentials(環境からの自動探索)を選べます。
+n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/builtin/credentials/aws)あります。アクセスキーを使う AWS (IAM) と、AWS STS(Security Token Service)でロールを引き受ける AWS (Assume Role) です。後者のフィールドは Region / Role ARN / External ID / Role Session Name で、STS を呼ぶ側の資格情報として Use System Credentials(環境からの自動探索)を選べます。External ID は、ロールの信頼ポリシーに書いた値と呼び出し側が渡す値を突き合わせる合言葉です。第三者が同じロール ARN を知っていても、この値を知らなければロールを引き受けられません(いわゆる confused deputy 問題への対策)。
 
 実際の入力画面が次です。**Use System Credentials を有効にすると、アクセスキーの入力欄自体が現れません**。
 
@@ -183,7 +183,7 @@ Azure のノード定義では `model` パラメータの説明が次のよう�
 
 > The name of the model(deployment) to use (e.g., gpt-4, gpt-35-turbo)
 >
-> — Azure OpenAI Chat Model ノード(v1)の型定義より
+> — [Azure OpenAI Chat Model ノードの properties.ts](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/LmChatAzureOpenAi/properties.ts)(`model` パラメータの `description`、2026-09 時点の master)
 
 Project ID を持つのは Vertex だけ、Model Source という二段構えを持つのは Bedrock だけ、認証方式を 2 つから選べるのは Azure だけ、と項目の並びを見るだけで設計思想の差が出ています。
 
@@ -269,7 +269,7 @@ sequenceDiagram
   Pod->>BR: InvokeModel
 ```
 
-構築時に踏んだ点を 3 つ挙げます(いずれも ※筆者環境での実測、n8n 2.33.3)。
+構築時に詰まった点を 3 つ挙げます(いずれも ※筆者環境での実測、n8n 2.33.3)。
 
 1. **AWS (IAM) 資格情報にキーを空で設定しても、デフォルトの資格情報チェーンにはフォールバックしませんでした。** 空のまま実行するとトークン不正のエラーになります。キーレスにしたい場合は AWS (Assume Role) 側を使う必要があります
 2. **External ID は省略できませんでした。** n8n の API 経由で資格情報を作成する際に必須項目として弾かれるため、IAM ロール側の信頼ポリシーにも同じ External ID の条件を入れて整合させています

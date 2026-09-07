@@ -72,13 +72,13 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 ### 3.1 互換性テストという「事実上の適合試験」
 
-中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of **unofficial** Amazon AWS S3 compatibility tests」と明記しているとおり、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースを実装に対して実行します。
+中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of unofficial Amazon AWS S3 compatibility tests」と明記しているとおり(README、2026-09 取得)、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースを実装に対して実行します。
 
 対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、「S3 互換」という表示ではなく「自分が使う API サブセットで s3-tests を実行した結果」で判断します。
 
 ### 3.2 主要なオープンソース実装
 
-| 実装 | GitHub | 特徴 |
+| 実装 | 言語 / ライセンス | 特徴 |
 |---|---|---|
 | [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞。近年は商用版への注力が進み、2025 年に Community Edition の Web 管理 UI が object browser 中心へ縮小された([object-browser#3509](https://github.com/minio/object-browser/pull/3509))。これを受けて代替を検討する議論も起きている([minio discussion #21320](https://github.com/minio/minio/discussions/21320)) |
 | [Ceph RGW](https://github.com/ceph/ceph) | C++ / LGPL | s3-tests 本家。互換性は最も広いが運用は重量級 |
@@ -92,7 +92,7 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 「片務的な標準」の脆さが露呈した最近の実例です。
 
-- 2024-12: AWS が S3 の[デフォルトのデータ整合性保護](https://aws.amazon.com/about-aws/whats-new/2024/12/amazon-s3-default-data-integrity-protections)を発表 — アップロード時に CRC32/CRC64NVME チェックサムを自動付与
+- 2024-12: AWS が S3 の[デフォルトのデータ整合性保護](https://aws.amazon.com/about-aws/whats-new/2024/12/amazon-s3-default-data-integrity-protections)を発表 — アップロード時に CRC32/CRC64NVME チェックサム(転送中のデータ破損を検出するための誤り検出符号)を自動付与
 - 2025-01: 各言語の AWS SDK がこれを**デフォルト有効**でリリース([aws-sdk-go-v2 の告知](https://github.com/aws/aws-sdk-go-v2/discussions/2960)等)
 - 直後: `x-amz-checksum-crc32 ... not implemented` — チェックサム未実装の互換サービス(当時の Cloudflare R2、旧 MinIO、GCS の XML 互換 API など)への**アップロードが軒並み失敗**。[aws-sdk-go-v2 の公式ディスカッション](https://github.com/aws/aws-sdk-go-v2/discussions/2960)にも「サードパーティの S3 互換サービスでは失敗し得る」旨と回避設定が明記されています
 

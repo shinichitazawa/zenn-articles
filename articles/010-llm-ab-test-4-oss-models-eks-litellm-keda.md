@@ -15,7 +15,7 @@ published: false
 3. **抽象化**: 既存 SDK を変えずに backend を差し替える router 層
 4. **評価**: 同一プロンプトで複数モデルを比較し、品質スコアを得る基盤
 
-結論を先に書きますと、LiteLLM Router (重み付きランダム) + ollama on EKS Auto Mode (Graviton3) + KEDA scale-to-zero + Langfuse + LLM-as-judge の組み合わせで、4 モデル並行運用が 月額 $80 程度 から成立します。
+結論を先に書きますと、LiteLLM Router (重み付きランダム) + ollama on EKS Auto Mode (Graviton3) + KEDA(Kubernetes Event-driven Autoscaling。メトリクスを条件に Pod 数を 0 まで増減させる autoscaler)の scale-to-zero + Langfuse + LLM-as-judge の組み合わせで、4 モデル並行運用が 月額 $80 程度 から成立します。
 
 想定読者は、EKS 上で LLM 推論基盤を運用しており、商用 API から OSS への段階移行を検討している中級者です。
 
@@ -39,20 +39,23 @@ published: false
 
 ```mermaid
 flowchart TB
-  C[Caller: agent / batch / Slack bot] --> L[LiteLLM proxy<br/>routing_strategy:<br/>simple-shuffle]
-  L -- 25% --> M1[ollama: sarashina2.2-3b-instruct<br/>cpu-small node]
-  L -- 25% --> M2[ollama: PLaMo 2 8B<br/>cpu-medium node]
-  L -- 25% --> M3[ollama: Phi-4-mini 3.8B<br/>cpu-small node]
-  L -- 25% --> M4[ollama: GPT-OSS-20B MoE<br/>cpu-medium node]
+  subgraph EKS["EKS クラスタ (Auto Mode)"]
+    L[LiteLLM proxy<br/>routing_strategy:<br/>simple-shuffle]
+    L -- 25% --> M1[ollama: sarashina2.2-3b-instruct<br/>cpu-small node]
+    L -- 25% --> M2[ollama: PLaMo 2 8B<br/>cpu-medium node]
+    L -- 25% --> M3[ollama: Phi-4-mini 3.8B<br/>cpu-small node]
+    L -- 25% --> M4[ollama: GPT-OSS-20B MoE<br/>cpu-medium node]
+    P[Prometheus] -. trigger .-> KEDA[KEDA<br/>scale-to-zero]
+    KEDA -.-> M1
+    KEDA -.-> M2
+    KEDA -.-> M3
+    KEDA -.-> M4
+    K[Karpenter<br/>EKS Auto Mode が同梱] -. Pod 配置に必要な<br/>ノードをクラスタ内に作成 .-> M1 & M2 & M3 & M4
+  end
+  C[Caller: agent / batch / Slack bot] --> L
   L -. callback .-> LF[Langfuse]
   LF -- batch 4-way 比較 --> J[LLM-as-judge<br/>Claude judge]
   J -- score --> G[Grafana<br/>A/B dashboard]
-  P[Prometheus] -. trigger .-> KEDA[KEDA<br/>scale-to-zero]
-  KEDA -.-> M1
-  KEDA -.-> M2
-  KEDA -.-> M3
-  KEDA -.-> M4
-  K[Karpenter<br/>EKS Auto Mode] -. provision .-> M1 & M2 & M3 & M4
 ```
 
 要点は次の通りです。
@@ -80,7 +83,7 @@ flowchart TB
 - `sarashina2.1` 系に 3B は存在せず（公開されているのは 1b のみ、かつ MIT ではありません）、3B の instruct 版として実在するのは `sarashina2.2-3b-instruct-v0.1`（MIT）です。
 - `pfnet/plamo-2-8b` のライセンスは Apache 2.0 ではなく PLaMo Community License で、Hugging Face 上でも gated です。Apache 2.0 なのは `pfnet/plamo-2-1b` の方です。
 
-したがって②は、本節冒頭に掲げた「Apache 2.0 / MIT のみ」という選定基準を満たしていません。本記事では**日本語 8B 級の比較価値を優先し、②に限り基準を「商用利用可能なライセンス」に緩めて続行**します（PLaMo Community License は一定条件で商用利用可。採用時はライセンス全文の確認が必要です）。
+したがって②は、本節冒頭に掲げた「Apache 2.0 / MIT のみ」という選定基準を満たしていません。本記事では**日本語 8B 級の比較価値を優先し、②に限り基準を「商用利用可能なライセンス」に緩めて続行**します（[PLaMo Community License](https://plamo.preferredai.jp/info/plamo-community-license-ja)(model card に記載の公式ライセンスページ)は一定条件で商用利用可とされています。※同ページは JavaScript 描画のため筆者は本文を機械取得できず、条件の文言照合は未実施(2026-09)。採用時はライセンス全文の確認が必要です）。
 :::
 
 地域分散も意識しました。日本製 2 + 米国製 2 の構成です。中国製 (Qwen / DeepSeek 等) は本検証から除外しています (企業ポリシーや調達基準で中国製 AI を制限するケースがあるためです)。
@@ -223,7 +226,7 @@ router_settings:
 Caller 側は `"model": "ab-router"` を指定するだけで 4 候補に均等に振り分けられます。応答の `x-litellm-model` header で実際に応答したモデルを確認できます。
 
 :::message
-LiteLLM の `telemetry: false` を強く推奨します。これは OpenTelemetry の話ではなく、LiteLLM 開発元 (BerriAI 社) に集計値を phone-home する別機能です。データ主権を取るならデフォルトで遮断すべきです。なお OpenTelemetry 連携は `callbacks: ["otel"]` という別経路で、こちらは自社 collector に送るので問題ありません。
+LiteLLM の `telemetry: false` を強く推奨します。これは OpenTelemetry の話ではなく、LiteLLM 自身の利用状況を開発元に送る別機能で、[公式 CLI ドキュメント](https://docs.litellm.ai/docs/proxy/cli)は `--telemetry` を「Help track usage of this feature. Turn off for privacy.」と説明しています(既定 `True`。2026-09 取得)。config では [公式サンプル proxy_server_config.yaml](https://github.com/BerriAI/litellm/blob/main/proxy_server_config.yaml) のとおり `litellm_settings.telemetry: False` で無効化できます。データ主権を取るならデフォルトで遮断すべきです。なお OpenTelemetry 連携は `callbacks: ["otel"]` という別経路で、こちらは自社 collector に送るので問題ありません。
 :::
 
 ## Langfuse + LLM-as-judge
@@ -324,7 +327,7 @@ LiteLLM の IRSA(IAM Roles for Service Accounts) + VPC Endpoint で Bedrock を�
 
 ## 5-way 自動判定を Temporal workflow で回す
 
-OSS 4 候補と AWS Nova Pro の 5-way 比較(こちらは絞り込み前の OSS 4 model すべてを対象とする、実装済みの固定構成です)を手動 trigger (将来は webhook) で走らせる Temporal workflow を立てます。judge ロジックを worker pod に閉じ込め、起動だけ webhook 経由で行う構成にします。
+OSS 4 候補と AWS Nova Pro の 5-way 比較(こちらは絞り込み前の OSS 4 model すべてを対象とする、実装済みの固定構成です)を手動 trigger (将来は webhook) で走らせる Temporal workflow を立てます。Temporal は長時間実行の処理を再試行・状態保持つきで実行するワークフローエンジンで、処理本体は worker pod 上のコードとして動きます。起動の経路には Argo Events(Kubernetes 上のイベント駆動基盤)を使い、**EventSource** が webhook を受信し、**Sensor** が条件に合致したイベントを見て後続を起動します。judge ロジックを worker pod に閉じ込め、起動だけ webhook 経由で行う構成にします。
 
 ### 全体フロー
 
@@ -455,9 +458,9 @@ Bedrock 呼び出しは LiteLLM proxy 経由で行うため、本 Role に Bedro
 
 A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動判定までフルセットが揃います。
 
-## 実装で踏んだ問題
+## 実装で詰まった問題
 
-検証中に踏んだ / 想定される問題を列挙します。
+検証中に直面した問題と想定される問題を列挙します。
 
 | # | 問題 | 対応 |
 |---|---|---|
@@ -467,7 +470,7 @@ A/B 比較基盤 ($80/月) と合わせても合計 $100/月以下で、自動�
 | 4 | NodePool が cluster-scoped なのに kustomize の namespace が付く | `noNamespace` 設定で除外可、動作には影響なし |
 | 5 | judge model に商用 API を使うと一部ロックインが残る | Phase 1 で GPT-OSS-120B を別 GPU node (scale-to-zero) で judge 化、月 +$250 程度 |
 | 6 | `routing_strategy: simple-shuffle` は完全ランダム。同一 prompt で 4 候補を均一比較したい | fingerprint-based routing (同じ prompt hash → 同じ model) に変更可 |
-| 7 | LiteLLM の `telemetry` を切り忘れると BerriAI 社に集計データが送信される | 既存 configmap で `telemetry: false # No phone-home` を明示 |
+| 7 | LiteLLM の `telemetry` を切り忘れると利用状況が開発元に送信される | 既存 configmap で `telemetry: false # No phone-home` を明示 |
 
 ## EKS 全体のコスト試算
 
@@ -497,7 +500,7 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 - モデルは商用利用可能なライセンスで選びます（①③④は Apache 2.0 / MIT。②のみ PLaMo Community License で、本文の訂正どおり例外扱いです）
 - **CPU 推論 (Graviton3 + NEON/SVE + GGUF Q4_K_M)** で 3-20B クラスは実用速度 (15-60 token/s) に到達します
 - **Langfuse + LLM-as-judge** で品質スコアリングを自動化し、winner 決定を客観化できます
-- `telemetry: false` (BerriAI への phone-home 遮断) と OpenTelemetry callback は別物です。データ主権を取るなら前者は必ず切ってください
+- `telemetry: false` (開発元への利用状況送信の遮断) と OpenTelemetry callback は別物です。データ主権を取るなら前者は必ず切ってください
 
 ## 参考
 

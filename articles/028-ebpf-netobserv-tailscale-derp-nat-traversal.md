@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-Kubernetes クラスタ内の Grafana を Tailscale の Ingress で tailnet に公開したところ、自作のネットワーク異常検知(NetObserv の eBPF flow を n8n で分析するもの)が「外部宛の新規通信」を検知しました。その通信元は Tailscale の Ingress プロキシ Pod で、通信の中身を NetObserv の eBPF flow ログで追うと、Tailscale がピア間接続を確立するときの通信(コーディネーションサーバ・STUN・DERP リレー・直結 WireGuard)が、そのままポート単位で並んでいました。
+Kubernetes クラスタ内の Grafana を Tailscale の Ingress で tailnet に公開したところ、自作のネットワーク異常検知(NetObserv の eBPF flow を n8n で分析するもの)が「外部宛の新規通信」を検知しました。その通信元は Tailscale の Ingress プロキシ Pod で、通信の中身を NetObserv の eBPF flow ログで追うと、Tailscale がピア間接続を確立するときの通信(コーディネーションサーバ・STUN・DERP リレー・直結 WireGuard)が、そのままポート単位で並んでいました。STUN は Session Traversal Utilities for NAT([RFC 8489](https://www.rfc-editor.org/rfc/rfc8489))で、NAT の外側から見た自分のアドレスを知るためのプロトコルです。DERP は Designated Encrypted Relay for Packets で、直結できないピア同士の暗号化済みパケットを中継する Tailscale のリレーサーバです([DERP servers](https://tailscale.com/docs/reference/derp-servers))。
 
 この記事は、その実測ログを一次データにして、Tailscale の接続確立の各段階を「クラスタ側の flow」から復元します。あわせて、なぜこの粒度が eBPF flow だと見えて Prometheus や cAdvisor では見えないのか、そして eBPF で「見えること・見えないこと」の境界を整理します。
 
@@ -105,7 +105,7 @@ Tailscale はまずコーディネーションサーバ(Tailscale の管理サ�
 >
 > — [Firewall ports](https://tailscale.com/kb/1082/firewall-ports)
 
-観測では、複数の DERP サーバ(STUN サーバを兼ねる)へ UDP 3478 が一斉に出ていました。複数の DERP に対して同時に叩くのは、応答時間から最も近い DERP リージョンを選ぶためと考えられます(理由: 直後に特定の DERP へ 443 の接続が集中したため)。
+観測では、複数の DERP サーバ(STUN サーバを兼ねる)へ UDP 3478 が一斉に出ていました。複数の DERP に対して同時に問い合わせるのは、応答時間から最も近い DERP リージョンを選ぶためと考えられます(理由: 直後に特定の DERP へ 443 の接続が集中したため)。
 
 ### 3. NAT のポートマッピング探索(UPnP-IGD / SSDP)
 
@@ -182,7 +182,7 @@ enrich された内部通信は、そのまま可視化にも使えます。NetO
 
 ![NetObserv の flow から作成した内部依存グラフの Grafana 表示例](/images/028-netobserv-grafana-nodegraph.png)
 
-*線の太さが流量、赤い線が再送や drop の発生を表します。ハブになっている `raspberrypi-0`(Kubernetes 側のコントロールプレーンノード)から各ワークロードへ通信が広がる構造が読み取れます。K8s の Owner 名で識別できる内部通信がノードになる一方、本記事で追った DERP のような外部エンドポイントは K8s 識別子を持たないため、このグラフには名前付きノードとして現れません。だからこそ相手の IP:ポートは、集約済みのグラフではなく生の flow レコードから読み取りました。*
+*線の太さが流量、赤い線が再送や drop の発生を表します。ハブになっている `raspberrypi-0`(Kubernetes 側のコントロールプレーンノード)から各ワークロードへ通信が広がる構造が読み取れます。Kubernetes の Owner 名で識別できる内部通信がノードになる一方、本記事で追った DERP のような外部エンドポイントは Kubernetes の識別子を持たないため、このグラフには名前付きノードとして現れません。だからこそ相手の IP:ポートは、集約済みのグラフではなく生の flow レコードから読み取りました。*
 
 この「メタデータは観測できるが、暗号化されたペイロードは観測できない」という切り分けは、WireGuard と DERP の設計に由来します。DERP サーバ自身も[暗号化済みのトラフィックをそのまま転送するだけで中身を復号できません](https://tailscale.com/kb/1232/derp-servers)。監視の観点でいえば、通信の有無・相手・通信量は把握できる一方で、通信内容は暗号化によって保護されたままになります。
 

@@ -26,7 +26,7 @@ AWS が提供する「オンプレで Kubernetes」の選択肢は、EKS Hybrid 
 
 | 観点 | EKS Hybrid Nodes | EKS on Outposts | EKS Anywhere |
 |---|---|---|---|
-| ハードウェア | 顧客所有の任意の物理/仮想マシン(x86 / ARM) | AWS 所有の Outposts ラックを顧客拠点に設置 | 顧客所有(vSphere / ベアメタル / Nutanix / Snow) |
+| ハードウェア | 顧客所有の任意の物理/仮想マシン(x86 / ARM) | AWS 所有の Outposts ラックを顧客拠点に設置 | 顧客所有(vSphere / ベアメタル / Nutanix / Snow = AWS Snowball Edge 等の可搬型エッジ機器) |
 | コントロールプレーン | AWS リージョン(AWS 管理) | extended はリージョン、local は Outpost 上(いずれも AWS 管理) | 顧客環境内(自己運用) |
 | CNI | Cilium(AWS サポート)。**VPC CNI は非対応** | VPC CNI が既定 | 顧客が選択 |
 | AWS への接続 | 必須(VPN / Direct Connect 等で VPC へ)。切断が常態の環境(DDIL)は対象外 | 前提(local クラスタは一時切断に耐える設計) | 不要。エアギャップ環境でも動作 |
@@ -52,9 +52,9 @@ AWS が提供する「オンプレで Kubernetes」の選択肢は、EKS Hybrid 
 ```mermaid
 flowchart TB
   Q1{AWS への常時接続を<br/>前提にできるか}
-  Q1 -->|できない・エアギャップ| ANY[EKS Anywhere<br/>CP も自己運用]
+  Q1 -->|できない・エアギャップ| ANY[EKS Anywhere<br/>コントロールプレーンも自己運用]
   Q1 -->|できる| Q2{ハードウェアの規模は}
-  Q2 -->|自前の任意 HW<br/>小規模から| HN[EKS Hybrid Nodes<br/>CP は AWS 管理]
+  Q2 -->|自前の任意 HW<br/>小規模から| HN[EKS Hybrid Nodes<br/>コントロールプレーンは AWS 管理]
   Q2 -->|ラックを導入できる<br/>VPC 延伸まで欲しい| OP[EKS on Outposts]
 ```
 

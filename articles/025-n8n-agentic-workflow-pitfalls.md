@@ -54,6 +54,7 @@ options: { temperature: 0.1, maxTokensToSample: 3000 }
 UI では Options の「Maximum Number of Tokens」がこれにあたります。
 
 ![AWS Bedrock Chat Model ノードの Options で Maximum Number of Tokens を 3000 に設定した画面](/images/025-maxtokens-params.png)
+*AWS Bedrock Chat Model ノードの Options。Maximum Number of Tokens を既定値から 3000 に引き上げている*
 
 指定を忘れると既定値が使われるため、日本語で長めの構造化出力を求めた時点で失敗します。
 
@@ -78,6 +79,7 @@ n8n の AI Agent ノードは入力アイテムごとに実行されるため、
 件数の絞り込み(prerelease の除外、バージョン比較など)は AI に任せず、コード側で確定させてから渡すと安定します。次の構成では、2つのリポジトリからリリースを取得して統合し、コードで対象を選別してからエージェントに1件ずつ渡しています。
 
 ![リリースを取得・統合し、コードで選別してからエージェントが1件ずつ判定するワークフロー](/images/025-a1-canvas.png)
+*リリース判定ワークフロー。取得 → 統合 → Code ノードで選別 → エージェントが 1 件ずつ判定、の順に並ぶ*
 
 ## 3. ツールが失敗しても、エージェントはそのまま先へ進む
 
@@ -86,6 +88,7 @@ n8n の AI Agent ノードは入力アイテムごとに実行されるため、
 サブワークフローをツールとして呼ぶエージェントを作り、実行したところ成功しました。しかし出力を見ると、**過去データがあるはずなのに「履歴が確認できない」と回答**しています。
 
 ![問い合わせをトリアージするエージェントに inquiry_history というサブワークフローツールを接続した構成](/images/025-a3-tool-canvas.png)
+*トリアージ用エージェントに、サブワークフローをツール化した inquiry_history を接続した構成*
 
 実行データを追うと、ツールの応答はこうでした(実測)。
 
@@ -111,10 +114,12 @@ n8n のトレースには `tool_calls.completed: 1` と記録されます。**�
 ツール側の設定はこうなっています。Source を Database にして呼び出し先の ID を指定し、引数は `$fromAI()` でエージェントに埋めさせます。
 
 ![Call n8n Workflow Tool の設定画面。Source は Database、Workflow は ID 指定、Workflow Inputs の email に $fromAI が入っている](/images/025-toolworkflow-params.png)
+*Call n8n Workflow Tool の設定。Source=Database、Workflow は ID 指定、Workflow Inputs の email には `$fromAI` を指定している*
 
 呼び出される側は Execute Workflow Trigger から始まる3ノードの小さなワークフローです。
 
 ![Execute Workflow Trigger から Data Table 検索を経て結果を要約して返すサブワークフロー](/images/025-subworkflow-tool.png)
+*ツールとして呼ばれるサブワークフロー。Execute Workflow Trigger → Data Table 検索 → 結果の要約、の 3 段*
 
 Call n8n Workflow Tool の[公式ドキュメント](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.toolworkflow/)には、**Database ソースで本番実行する場合はサブワークフローが publish されている必要があり、未 publish だと `Workflow is not active and cannot be executed` エラーになる**ことが明記されています(2026-09 時点。執筆当時は該当記載を見つけられず実測で確認しましたが、現行ドキュメントでは明文化されています)。実測の挙動(publish するまで前掲のエラー、publish 直後に成功)とも一致します。
 
@@ -152,6 +157,7 @@ Wait ノードの[公式ドキュメント](https://docs.n8n.io/integrations/bui
 この形なら再開後に必要なのは実行 ID だけです。副次的に、承認待ちの一覧がそのままデータベースに残るという実務上の利点もありました。キャンバス上では「承認待ちとして保存 → 上長の承認を待つ → 決裁結果を反映」と、Wait の前後を保存と更新で挟む形になります。
 
 ![AI の規程チェック後、承認待ちとして保存してから Wait で待ち、再開後に決裁結果を同じ行へ反映するワークフロー](/images/025-a2-wait-canvas.png)
+*承認待ちワークフロー。規程チェック → 承認待ちとして保存 → Wait ノードで停止 → 再開後に同じ行へ決裁結果を反映*
 
 なお、再開用 URL は `$execution.resumeUrl` で参照できます。
 
@@ -160,6 +166,7 @@ Wait ノードの[公式ドキュメント](https://docs.n8n.io/integrations/bui
 また `Limit Wait Time` を設定しておくと、承認が来ないまま放置された場合に自動で再開できます。承認フローでは**期限切れの扱いを決めておかないと、実行が無期限に滞留**します。設定画面では次のようになります(Resume を On Webhook Call、Limit Wait Time を3日、後述の Ignore Bots も有効)。
 
 ![Wait ノードの設定画面。Resume は On Webhook Call、$execution.resumeUrl の案内、Limit Wait Time 3 Days、Ignore Bots が有効](/images/025-wait-params.png)
+*Wait ノードの設定。Resume=On Webhook Call、`$execution.resumeUrl` の案内表示、Limit Wait Time=3 Days、Ignore Bots=有効*
 
 ## 6. `ignoreBots` は curl も弾く
 
@@ -248,6 +255,7 @@ Atom フィードは同じリリースについて複数のエントリを返す
 - 整形: 通常のエージェントノード
 
 ![公式ドキュメントを HTTP で取得し、調査担当・査読担当・編集担当のエージェントを直列に並べた構成](/images/025-a4v2-canvas.png)
+*3 エージェント直列構成。HTTP Request で公式ドキュメントを取得したあと、調査担当 → 査読担当 → 編集担当の順にエージェントが並ぶ*
 
 最初の版では査読担当に原文を渡していなかったため、「引用が原文にあるか」を判定できず、**正しい記述まで「原文に存在しない」と誤判定**していました。判断させるなら判断材料も渡す、という原則がここでも当てはまります。
 
@@ -267,9 +275,9 @@ n8n の Workflow SDK(ワークフローをコードで定義するための開�
 
 最後の点は特に厄介です。作成 API は通り、一見すると成功しているように見えます。ノードを追加する前に必ず型定義を確認してください。
 
-## 追記: その後の検証で踏んだ問題(2026-08-14)
+## 追記: その後の検証で直面した問題(2026-08-14)
 
-初稿のあと、脆弱性トリアージと「会議音声 → ToDo 抽出」の 2 本を追加で作りました。そこで新たに踏んだものを追記します。いずれも筆者環境での実測です。
+初稿のあと、脆弱性トリアージと「会議音声 → ToDo 抽出」の 2 本を追加で作りました。そこで新たに直面したものを追記します。いずれも筆者環境での実測です。
 
 | # | 内容 | 種別 |
 |---|---|---|
@@ -305,7 +313,7 @@ n8n の Workflow SDK(ワークフローをコードで定義するための開�
 
 会議の「あす」を絶対日付に変換する処理で、**「あす」が当日になる**ずれが出ました(実測)。
 
-原因は、Code ノードがタスクランナーで実行され、その環境のタイムゾーンが UTC だったことです。`new Date()` のローカル getter(`getDate()` など)で日付を組み立てると、JST との 9 時間差で日付境界がずれます。コンテナに `GENERIC_TIMEZONE=Asia/Tokyo` を設定していても、この getter には効きませんでした(実測)。
+原因は、Code ノードがタスクランナー(n8n 本体とは別プロセスでユーザーコードを実行する仕組み。[公式: Task runners](https://docs.n8n.io/hosting/configuration/task-runners/))で実行され、その環境のタイムゾーンが UTC だったことです。`new Date()` のローカル getter(`getDate()` など)で日付を組み立てると、JST との 9 時間差で日付境界がずれます。コンテナに `GENERIC_TIMEZONE=Asia/Tokyo` を設定していても、この getter には効きませんでした(実測)。
 
 対処は、日付演算を UTC getter + 明示オフセットに統一することです。
 

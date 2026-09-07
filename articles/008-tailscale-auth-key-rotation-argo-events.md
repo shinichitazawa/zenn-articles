@@ -117,11 +117,12 @@ flowchart TB
 | Argo Events `EventBus` (NATS JetStream) | EventSource → Sensor のメッセージング |
 | Argo Events `Sensor` | event type と device 名で filter し、Argo Workflow を `argo` namespace に submit |
 | Argo `WorkflowTemplate` | `rotate.py` を実行する Pod を生成。public image `python:3.12-slim` + ConfigMap mount |
-| ServiceAccount + IRSA(IAM Roles for Service Accounts) | OIDC trust で cross-account role を assume できる demo 側 IAM Role |
-| Kro `IRSARole` instance | IAM Role 定義を高レベル CRD で記述、ACK iam-controller が AWS API を叩く |
+| ServiceAccount + IRSA(IAM Roles for Service Accounts) | OIDC(OpenID Connect) trust で cross-account role を assume できる demo 側 IAM Role |
+| Kro `IRSARole` instance | IAM Role 定義を高レベル CRD で記述、ACK iam-controller が AWS API を呼び出す |
 | External Secrets Operator | AWS Secrets Manager から OAuth credentials / Slack webhook を k8s Secret に sync[^2] |
 | Cross-account IAM Role | target account 側で Put/Get on Secrets Manager + StartInstanceRefresh on ASG を許可 |
 | ASG instance refresh | bastion を rolling 入れ替えして新 key を userdata 経由で適用[^3] |
+| bastion EC2 のインスタンスプロファイル | 起動時に Secrets Manager から新 key を `GetSecretValue` で取得するための IAM Role(target account 側。当該 secret への `secretsmanager:GetSecretValue` のみ許可)。図の 9 に相当 |
 
 [^1]: [Tailscale Webhooks doc](https://tailscale.com/docs/features/webhooks): "Events are sent as JSON arrays" / signature header は `Tailscale-Webhook-Signature: t=<epoch>,v1=<hex-hmac-sha256>` 形式
 [^2]: [External Secrets Operator: ClusterSecretStore](https://external-secrets.io/latest/introduction/overview/) — ClusterSecretStore が認証情報、ExternalSecret が個別の取得指示
@@ -217,12 +218,12 @@ spec:
 ポイント:
 
 - `dataLogicalOperator: and` で event type と deviceName の両方を満たす場合のみ発火。default が `and` なので明示しなくても良いが、意図を明文化する意味で書いている[^4]
-- target は `argo` namespace の WorkflowTemplate。cross-namespace submit になるため、Sensor ServiceAccount が `argo` ns に対して `workflowtemplates:get` + `workflows:create` の RBAC を持つ必要がある (後述)
+- target は `argo` namespace の WorkflowTemplate。cross-namespace submit になるため、Sensor ServiceAccount が `argo` ns に対して `workflowtemplates:get` + `workflows:create` の RBAC(Role-Based Access Control)を持つ必要がある (後述)
 - `body.0.data.deviceName` で配列先頭要素を triggered-by parameter に注入し、Workflow ログから「どの device 由来か」を追える
 
 ## cross-namespace RBAC の注意点
 
-Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと事故る。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消える。
+Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと機能しない。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消える。
 
 対策は単純: RBAC を `argo` namespace 側の overlay に置く。
 
@@ -441,7 +442,7 @@ target account 側の cross-account Role は Terraform で別管理 (詳細は�
 
 ## ASG instance refresh の MinHealthyPercentage
 
-bastion は single-AZ / single-instance 構成。default の `MinHealthyPercentage: 90` のままでも[公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) の "Violate min healthy percentage" fallback で実行はされるが、同 doc が「single instance の ASG では推奨しない、instance refresh の開始で outage を引き起こし得る」と明示している通り、意図しない瞬断が紛れ込む。`MinHealthyPercentage: 0` を Preferences に明示して「短時間の 0 instance 状態を許容する」運用契約を表に出すのが安全[^5]。
+bastion は single-AZ / single-instance 構成。default の `MinHealthyPercentage: 90` のままでも[公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) の "Violate min healthy percentage" fallback で実行はされるが、同 doc が「single instance の ASG では推奨しない、instance refresh の開始で outage を引き起こし得る」と明示している通り、意図しない瞬断が紛れ込む。`MinHealthyPercentage: 0` を Preferences に明示して「短時間の 0 instance 状態を許容する」運用契約を表に出します[^5]。
 
 ```python
 session.client("autoscaling").start_instance_refresh(
@@ -654,7 +655,9 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 
 ### 何が嬉しいか — 1 行で
 
-> EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に焼き付ける**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせる。
+:::message
+EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に永続化する**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせる。
+:::
 
 ## まとめ
 

@@ -52,7 +52,7 @@ flowchart TB
 1. **eBPF Agent** が各ノードの ingress / egress フローをカーネルから収集
 2. (任意) Kafka を ingestion 層として挟む。大規模クラスタで推奨
 3. **flowlogs-pipeline (FLP)** がフローをエンリッチ、メトリクスを生成、複数バックエンドへ出力
-4. **Loki** / Prometheus / 他 (Kafka / OTLP(OpenTelemetry Protocol) / IPFIX) に保存
+4. **Loki** / Prometheus / 他 (Kafka / OTLP(OpenTelemetry Protocol) / IPFIX(IP Flow Information Export。フロー情報交換の IETF 標準形式)) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
 
 FLP は単体で柔軟性が高い。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
@@ -154,7 +154,7 @@ sudo -E bin/netobserv-ebpf-agent
 
 README の Deployment test 節に重要な記述がある[^netobserv-readme]:
 
-> Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF
+> Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF.
 
 つまり Amazon EKS の AMI は eBPF が無効化されて出荷される。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要。
 
@@ -205,7 +205,7 @@ flowchart TB
 | CNI 依存 | 非依存 (eBPF が動けば何でも)[^netobserv-readme] | Cilium CNI 必須 |
 | 出自 | Red Hat (OpenShift 文脈) | Isovalent (2024-04 に Cisco が買収完了[^isovalent-cisco])、CNCF Graduated (2023-10)[^cilium-cncf] |
 | データバックエンド | Loki / Prometheus / Kafka / OTLP / IPFIX[^flp-readme] | Hubble Relay → Prometheus / Grafana |
-| L7・追加メトリクスの可視化 | DNS 追跡, TCP RTT, packet drops (agent features で有効化)[^operator-features] | HTTP, gRPC, DNS, TLS 可視化 (L7 プロキシ経由)[^cilium-l7] |
+| L7(アプリケーション層プロトコル)・追加メトリクスの可視化 | DNS 追跡, TCP RTT, packet drops (agent features で有効化)[^operator-features] | HTTP, gRPC, DNS, TLS 可視化 (L7 プロキシ経由)[^cilium-l7] |
 | ストレージ要件 | Loki 不要にできる (v1.4+)[^no-loki-blog] | Hubble 自体は短期保存、export 別途 |
 | ARM64 対応 | 公式サポート[^operator-arch] | 公式サポート (AMD64 / AArch64)[^cilium-arch] |
 
@@ -331,7 +331,9 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 
 `/sys/kernel/btf/vmlinux` 不在。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
 
-CO-RE (Compile Once - Run Everywhere) は eBPF プログラムが kernel struct のレイアウト差を吸収する仕組みで、ロード時に kernel の BTF を参照します。BTF がなければ relocate できず、program ロード自体が拒否されます。Cilium も同様で、[Cilium の System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) は必要なカーネル設定の一覧に `CONFIG_DEBUG_INFO_BTF=y` を挙げています(2026-08 時点で取得)。
+用語を先に整理します。**BTF** (BPF Type Format) は kernel が自身の構造体レイアウトを公開するための型情報で、`/sys/kernel/btf/vmlinux` として提供されます。**CO-RE** (Compile Once - Run Everywhere) は、eBPF プログラムを kernel ごとに再コンパイルせず、ロード時にこの BTF を参照して構造体オフセットを書き換える(**relocation**)仕組みです。
+
+したがって BTF がなければ relocation が行えず、program のロード自体が拒否されます。Cilium も同様で、[Cilium の System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) は必要なカーネル設定の一覧に `CONFIG_DEBUG_INFO_BTF=y` を挙げています(2026-08 時点で取得)。
 
 ### 結論
 

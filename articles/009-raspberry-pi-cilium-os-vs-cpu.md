@@ -115,7 +115,7 @@ CONFIG_CGROUP_BPF=y
 
 Ubuntu 24.04 LTS は kernel 6.8 系で、これらを満たします。古い Raspberry Pi OS のままだと kernel が古かったり BTF 無効だったりしますが、これも OS / kernel を更新すれば解決します。
 
-実際にこの「BTF 無効」は、Raspberry Pi OS の現行カーネルで踏みます。手元の Pi（Raspberry Pi OS bookworm, `6.6.62+rpt-rpi-2712`）で確認すると、`CONFIG_BPF` 系は有効な一方で BTF が完全に欠けていることがわかります。
+実際にこの「BTF 無効」は、Raspberry Pi OS の現行 kernel が該当します。手元の Pi（Raspberry Pi OS bookworm, `6.6.62+rpt-rpi-2712`）で確認すると、`CONFIG_BPF` 系は有効な一方で BTF が完全に欠けていることがわかります。
 
 ```console
 $ grep -E 'CONFIG_BPF=|CONFIG_BPF_SYSCALL|CONFIG_CGROUP_BPF|CONFIG_DEBUG_INFO_BTF' \
@@ -143,7 +143,7 @@ kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、B
 Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.
 ```
 
-この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、Armv8.2 準拠かつ Cryptography Extension 付き（Armv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。回避策として kube-proxy add-on v1.30 を使い続ける方法が案内されていましたが、これは 2026 年 7 月に延長サポート終了しているため、現時点では upstream の custom kube-proxy image を使う選択肢が残ります。
+この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、Armv8.2 準拠かつ Cryptography Extension 付き（Armv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。同ページは回避策として kube-proxy add-on v1.30 を使い続ける方法を案内していました。しかし v1.30 は 2026 年 7 月に延長サポートが終了しています。そのため現時点で残る選択肢は、upstream の custom kube-proxy image を使うことです。
 
 これは CPU の命令セット世代の問題で、OS や kernel をいくら新しくしても直らません。なぜなら、無い命令はソフトウェアでは生やせないからです。
 
@@ -211,7 +211,7 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 1. k3s は Cilium に公式対応しています（`--flannel-backend=none --disable-network-policy`、kube-proxy free なら `--disable-kube-proxy`）。
 2. Pi の制約は OS 層（nodeadm 対応 OS・Cilium kernel 5.10+ / BTF）と CPU シリコン層（Armv8.2-A）に分かれます。
 3. OS 層は Ubuntu 24.04 arm64 化で直ります。CPU 層は OS 更新では直りません（Arm TRM が示す通り A53 / A72 は Armv8-A）。
-4. Pi 3 / Pi 4 で Armv8.2-A 要求イメージを踏んだら、Cilium kube-proxy replacement などで「動かすバイナリ」を変えて回避します。
+4. Pi 3 / Pi 4 で Armv8.2-A を要求するイメージが必要になったら、Cilium kube-proxy replacement などで「動かすバイナリ」を変えて回避します。
 5. 素直に全部通したいなら Pi 5（Cortex-A76 / Armv8.2-A）です。
 
 ## 参考

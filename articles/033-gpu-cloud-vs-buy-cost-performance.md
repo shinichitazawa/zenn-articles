@@ -43,7 +43,7 @@ Colab 無料枠の T4(VRAM 16GB / システム RAM 12GB)に ComfyUI + H3 を載�
        14956MB Staged. 0 patches attached.
 ```
 
-15.7GB のテキストエンコーダは **dynamic VRAM loading で 16GB の T4 にステージできた**(NVFP4 の混合精度も Turing 世代で動作)。ところがその直後、システム RAM 12GB が枯渇して OOM killer がプロセスを殺し、セッションごと消滅しました。死亡直前の状態:
+15.7GB のテキストエンコーダは **dynamic VRAM loading で 16GB の T4 にステージできた**(NVFP4 の混合精度も Turing 世代で動作)。ところがその直後、システム RAM 12GB が枯渇して OOM killer(Out Of Memory killer。メモリ不足時に Linux カーネルがプロセスを強制終了する仕組み)がプロセスを終了させ、セッションごと消滅しました。死亡直前の状態:
 
 ```text
 GPU: 8255 MiB used
@@ -54,7 +54,7 @@ RAM: total 12GB / used 9GB / available 2GB / swap 0
 
 ## 実測 2: GCP の Spot GPU は「グローバルクォータ」に阻まれる
 
-GCP の g2-standard-16(L4 24GB / RAM 64GB、Spot で ¥55〜70/時)は要件を満たす本命でしたが、新規プロジェクトでは 2 段のクォータがあります。
+GCP の g2-standard-16(L4 24GB / RAM 64GB、Spot で ¥55〜70/時)は要件を満たす有力候補でしたが、新規プロジェクトでは 2 段のクォータがあります。
 
 - リージョン別 `PREEMPTIBLE_NVIDIA_L4_GPUS`: **主要リージョンで既定 1 が付与済み**(実測)
 - グローバル `GPUS_ALL_REGIONS`: **既定 0**
@@ -117,8 +117,8 @@ V100 32GB + RAM 40GB は上の要件を満たします。
 読み方のポイント:
 
 1. **DOK の V100 は「帯域と VRAM は RTX 3090 以上、演算は 3090 前後、ソフト対応は終盤」**。生成系ワークロードは帯域律速になりやすいので、900 GB/s は数字以上に効きます
-2. **性能表に出ない軸 = 量子化フォーマットの対応世代**。H3 のテキストエンコーダは NVFP4(NVIDIA の 4bit 形式)で、ネイティブ実行は Blackwell 世代前提。旧世代では逆量子化フォールバックの可否がモデル実装依存になります。Volta は bf16 も持たないため、bf16 前提のモデルは fp16 フォールバック確認が必要
-3. **CUDA のサポート打ち切り**も実務では性能より先に効きます。CUDA 13 系は Volta を切ったため、V100 で動かすにはベースイメージを CUDA 12 系に固定する必要があります(PyTorch 公式イメージなら `*-cuda12.x-*` を明示)
+2. **性能表に出ない軸 = 量子化フォーマットの対応世代**。H3 のテキストエンコーダは NVFP4(NVIDIA の 4bit 形式)で、ネイティブ実行は Blackwell 世代前提。旧世代では逆量子化フォールバック(4bit の重みを実行前に fp16 などへ戻して計算する方式)の可否がモデル実装依存になります。今回は ComfyUI 側がこのフォールバックを実装していたため、Turing(T4)でも Volta(V100)でも NVFP4 のテキストエンコーダが動きました(実測)。Volta は bf16 も持たないため、bf16 前提のモデルは fp16 フォールバック確認が必要
+3. **CUDA のサポート打ち切り**も実務では性能より先に効きます。CUDA 13 系は Volta をサポート対象から外したため([CUDA Toolkit リリースノート](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html)では cuFFT / cuSPARSE などが 13.0 で Maxwell・Pascal・Volta(Turing より前の compute capability)のサポート削除を明記。2026-09 取得)、V100 で動かすにはベースイメージを CUDA 12 系に固定する必要があります(PyTorch 公式イメージなら `*-cuda12.x-*` を明示)
 4. RTX 5090 はカード単体(約 ¥90 万)より **BTO 一式(最安 ¥75 万前後)が安い逆転**が起きています(2026-08 時点の品薄相場)
 
 ## コスト比較: 借りる vs 買う
@@ -160,7 +160,7 @@ H3 の重みは [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/
 
 ## まとめ
 
-- 重み 44.5GB 級のモデルは「VRAM + RAM + ディスク」の 3 段で考える。無料 Colab の敗因は VRAM ではなく RAM 12GB(実測)
+- 重み 44.5GB 級のモデルは「VRAM + RAM + ディスク」の 3 段で考える。無料 Colab で失敗した主因は VRAM ではなく RAM 12GB(実測)
 - GCP のグローバル GPU クォータは **Spot にも適用される**(実測)。「今日動かしたい」に GCP/AWS は向かない
 - さくら高火力 DOK は「クォータなし・57.6 円/時・秒課金」で検証用途の実用最安。ただし V100=Volta の世代制約(bf16 なし・CUDA 12 固定)に注意
 - 購入の損益分岐は中古 3090 でも約 3,200 時間。毎日回す実績がつくまでは借りる

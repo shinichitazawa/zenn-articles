@@ -21,9 +21,9 @@ published: false
 | 項目 | 値 |
 |---|---|
 | control plane | Raspberry Pi 5（k3s `v1.36.2+k3s1`） |
-| worker (Azure) | VMSS スポット（`Standard_B2pls_v2`、2 vCPU / 4 GiB、arm64、通常時 0 台） |
-| worker (AWS) | ASG スポット（t4g 系、arm64、通常時 0 台） |
-| worker (GCP) | MIG スポット（当初 `e2-micro`、後述の再検証では `e2-medium`、amd64、通常時 0 台） |
+| worker (Azure) | VMSS(Virtual Machine Scale Sets)スポット（`Standard_B2pls_v2`、2 vCPU / 4 GiB、arm64、通常時 0 台） |
+| worker (AWS) | ASG(Auto Scaling Group)スポット（t4g 系、arm64、通常時 0 台） |
+| worker (GCP) | MIG(Managed Instance Group)スポット（当初 `e2-micro`、後述の再検証では `e2-medium`、amd64、通常時 0 台） |
 | ノード間接続 | Tailscale（各ノードが tailnet に参加し、その IP を k3s の node-ip に使用） |
 | CNI | Cilium `v1.19.3`（kube-proxy replacement） |
 | 観測 | netobserv-ebpf-agent（`:main` タグ、direct-flp モード） |
@@ -273,7 +273,7 @@ v1.35:
   node group for node "raspberrypi-0": wrong id: expected format gce://...
 ```
 
-AWS / Azure の provider は自形式でない providerID を単に読み飛ばすため([AWS: aws_cloud_provider.go の NodeGroupForNode](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/aws/aws_cloud_provider.go#L128-L138) は解釈できない providerID に対し log だけ出して nil を返し、[Azure: azure_cloud_provider.go の NodeGroupForNode](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/azure/azure_cloud_provider.go#L118-L128) は `azure://` で始まらなければ skip します。2026-08 時点の master)、同じクラスタで問題なく動きます。この差は実装依存で、`k3s://` の control plane や他クラウドの worker が同居する self-hosted 構成では、GCE provider は現状使えないという結論になりました。
+AWS / Azure の provider は自形式でない providerID を単に読み飛ばすため、同じクラスタで問題なく動きます。AWS provider は解釈できない providerID に対し log だけ出して nil を返し、Azure provider は `azure://` で始まらなければ skip します(出典: [AWS: aws_cloud_provider.go の NodeGroupForNode](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/aws/aws_cloud_provider.go#L128-L138)、[Azure: azure_cloud_provider.go の NodeGroupForNode](https://github.com/kubernetes/autoscaler/blob/17e826d231e49e07d5eac2cca3c6fd40a48e09e9/cluster-autoscaler/cloudprovider/azure/azure_cloud_provider.go#L118-L128)。いずれも 2026-08 時点の master)。この差は実装依存で、`k3s://` の control plane や他クラウドの worker が同居する self-hosted 構成では、GCE provider は現状使えないという結論になりました。
 
 なお調査の過程で、GCE provider の scale-from-0 が**ノードの label/taint を instance template のメタデータ `kube-env`（`AUTOSCALER_ENV_VARS`）から読む**ことも確認し、template には `node_labels=cloud=gcp,...` を追加済みです（Cluster Autoscaler が解析するところまでは動きました）。GKE 以外でこの経路を使う場合の必須設定ですが、上記の制約により今回は活きませんでした。
 

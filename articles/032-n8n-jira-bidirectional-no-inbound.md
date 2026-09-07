@@ -12,8 +12,8 @@ published: false
 
 ポイントは方向によって設計が変わることです。
 
-- **発行(n8n → Jira)**: n8n から Jira の API を叩くだけ。外向き通信なので追加の経路は不要
-- **受信(Jira → n8n)**: Jira の Webhook はインターネットから飛んでくるため、そのまま受けると自宅クラスタに着信経路を開けることになる。これを避ける中継設計にしました
+- **発行(n8n → Jira)**: n8n から Jira の API を呼び出すだけ。外向き通信なので追加の経路は不要
+- **受信(Jira → n8n)**: Jira の Webhook はインターネットから飛んでくるため、そのまま受けると自宅クラスタにインターネットからの着信経路を作ることになる。これを避ける中継設計にしました
 
 - 検証環境: セルフホスト n8n 2.33.3 / Kubernetes(Raspberry Pi コントロールプレーン + マルチクラウド)
 - 実測はすべて筆者環境(2026-08 時点)
@@ -49,7 +49,7 @@ n8n には Jira Software ノードがあり、issue の作成・更新・遷移�
 ```mermaid
 flowchart TB
   W[Webhook で ToDo を受信] --> C[Code で整形<br/>title 必須・説明に期限や出所をまとめる]
-  C --> J[Jira ノードで issue を作成<br/>project と課題タイプを指定]
+  C --> J[Jira ノードで issue を作成<br/>project と issue type を指定]
   J --> R[issue key を応答<br/>失敗時は onError で ok:false]
 ```
 
@@ -61,7 +61,7 @@ flowchart TB
 掲載にあたり、Jira のサイト名・プロジェクト・issue key は例示用の値に置き換えています。結果はこれらの文字列の中身に依存しません。
 :::
 
-## 受信: Jira の Webhook を「穴を開けずに」受ける
+## 受信: Jira の Webhook を着信経路なしで受ける
 
 Jira Cloud の Webhook は、[公式ドキュメント](https://developer.atlassian.com/cloud/jira/platform/webhooks/)のとおり HTTPS のコールバックで、イベント発生時に登録先 URL へ POST を送ります。
 
@@ -82,9 +82,9 @@ flowchart TB
   POLL --> S[注目イベントだけ Slack 通知]
 ```
 
-受信ワークフローは、**Jira の生 Webhook 形式と、中継を挟んだ封筒形式の両方を受理**できるようにしました。これで「まず tailnet 内で直接叩いて動作確認 → 本番は中継経由」と段階を踏めます。
+受信ワークフローは、**Jira の生 Webhook 形式と、中継を挟んだ封筒形式(envelope。SQS 経由で届く際に中継側のメタデータで元の Webhook 本文を包んだ形式)の両方を受理**できるようにしました。これで「まず tailnet 内で直接呼び出して動作確認 → 本番は中継経由」と段階を踏めます。
 
-整形処理は決定的な抽出だけを行います。issue key・要約・ステータス・担当者・ブラウズ URL を取り出し、`jira:issue_created` か、ステータスが完了・Done・クローズ・Closed になった場合だけ Slack に通知します。
+整形処理は決定的な抽出だけを行います。issue key・要約・ステータス・担当者・ブラウズ URL を取り出し、`jira:issue_created` か、ステータスが完了・Done・クローズ・Closed になった場合だけ Slack に通知します。4 語を並べているのは、Jira のステータス名がサイトの言語設定やプロジェクトのワークフロー設定によって日本語・英語のどちらにもなり得るためです。
 
 ## 検証結果(2026-08 時点)
 
@@ -95,7 +95,7 @@ flowchart TB
 ## まとめ
 
 1. n8n と Jira の連携は方向で設計が変わります。発行(n8n → Jira)は外向き API だけで完結し、追加経路は不要です
-2. 受信(Jira → n8n)は、Webhook が[インターネット到達可能な HTTPS を要求する](https://developer.atlassian.com/cloud/jira/platform/webhooks/)ため、そのまま受けるとクラスタに着信経路を開けることになります
+2. 受信(Jira → n8n)は、Webhook が[インターネット到達可能な HTTPS を要求する](https://developer.atlassian.com/cloud/jira/platform/webhooks/)ため、そのまま受けるとクラスタにインターネットからの着信経路を作ることになります
 3. 受信は AWS 中継(API Gateway + SQS)に載せ、クラスタは外向きにキューを取りに行くことで、着信経路ゼロを維持できます。GitHub 用に作った中継をそのまま流用できました
 4. 受信ワークフローを生 Webhook と封筒の両対応にしておくと、直結テストと本番中継を同じ実装で回せます
 

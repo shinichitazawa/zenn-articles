@@ -34,11 +34,11 @@ flowchart TB
 
 ## Kro (Kube Resource Orchestrator)
 
-[Kro](https://kro.run/) は 2024 年後半に公開された比較的新しい OSS。最新 v0.9.3 (2026-08 時点)。リポジトリは [kubernetes-sigs/kro](https://github.com/kubernetes-sigs/kro) へ移管され、Kubernetes SIG 配下のプロジェクトになっています。なおプロジェクトの公式表記は小文字の "kro" ですが、本記事では文頭・文中での読みやすさのため "Kro" と表記します。
+[Kro](https://kro.run/) は 2024 年後半に公開された比較的新しい OSS。最新 v0.9.3 (2026-08 時点)。リポジトリは [kubernetes-sigs/kro](https://github.com/kubernetes-sigs/kro) へ移管され、Kubernetes SIG 配下のプロジェクトになっています(README が「Kube Resource Orchestrator (kro) is a subproject of Kubernetes SIG Cloud Provider」と明記。2026-09 取得)。なおプロジェクトの公式表記は小文字の "kro" ですが、本記事では文頭・文中での読みやすさのため "Kro" と表記します。
 
 ### 仕組み
 
-`ResourceGraphDefinition` (RGD) という CRD で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成する:
+`ResourceGraphDefinition` (RGD) という CRD(Custom Resource Definition。Kubernetes API に独自リソース型を追加する仕組み)で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成する:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -150,7 +150,7 @@ spec:
 
 ## 選定の指針
 
-判断基準: 軽量さ重視なら Kro、マルチクラウド/エコシステム重視なら Crossplane。
+上の比較表が両者の性質を並べたものであるのに対し、この節の表は「自分の条件ではどちらが向くか」を条件別に整理したものです。判断基準: 軽量さ重視なら Kro、マルチクラウド/エコシステム重視なら Crossplane。
 
 | 条件 | Kro | Crossplane |
 |---|---|---|
@@ -233,18 +233,15 @@ ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付
 
 ## 採用判断フロー
 
-```text
-Q1. 小規模 / 低リソース環境 ?
-  YES → Q2
-  NO  → Crossplane
-
-Q2. AWS 中心 ?
-  YES → Kro (+ ACK)
-  NO  → Crossplane
-
-Q3. 複合リソースのバンドル抽象が欲しい ?
-  YES → Kro RGD
-  NO  → Kustomize で十分
+```mermaid
+flowchart TB
+  Q1{小規模 / 低リソース環境か}
+  Q1 -->|NO| CP1[Crossplane]
+  Q1 -->|YES| Q2{AWS 中心の構成か}
+  Q2 -->|NO| CP2[Crossplane]
+  Q2 -->|YES| Q3{複合リソースをまとめる<br/>抽象が必要か}
+  Q3 -->|YES| KRO[Kro RGD + ACK]
+  Q3 -->|NO| KUS[Kustomize で十分]
 ```
 
 ## まとめ

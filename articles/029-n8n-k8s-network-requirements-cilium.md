@@ -10,7 +10,7 @@ published: false
 
 セルフホストの n8n で AI ワークフローの検証を重ねてきた環境に、GitHub の全イベントを受けるイベントバス(NATS JetStream)を足したタイミングで、**通信要件を全部洗い出して Cilium のネットワークポリシーで固めました**。本記事はその設計と、適用して初めて分かった Tailscale 特有の注意点の記録です。
 
-- 検証環境: k3s(Raspberry Pi コントロールプレーン)+ Cilium / n8n 2.33.3 / Tailscale operator
+- 検証環境: k3s(Raspberry Pi コントロールプレーン)+ Cilium / n8n 2.33.3 / Tailscale operator / AWS 側の中継(API Gateway + Lambda + SQS)
 - 実測はすべて筆者環境(2026-08 時点)
 
 :::message
@@ -91,7 +91,7 @@ GitHub → API Gateway(リソースポリシー: GitHub の hooks CIDR のみ許
 クラスタ内 sqs-poller → SQS を外向きロングポーリング(keyless)→ NATS → n8n
 ```
 
-- 送信元 CIDR は [GitHub の meta API](https://api.github.com/meta) から Terraform の apply 時に取得し、レンジ外は 403(実測: 自端末からの直叩きは 403、GitHub からの配送は 200)
+- 送信元 CIDR は [GitHub の meta API](https://api.github.com/meta) から Terraform の apply 時に取得し、レンジ外は 403(実測: 自端末からの直接アクセスは 403、GitHub からの配送は 200)
 - クラスタ側は外向き接続だけになり、**インターネットからの着信経路がゼロ**になります
 - 費用は実測イベント量(月 100 件強)で月 1 円未満(API Gateway のリクエスト課金のみ。Lambda / SQS は常時無料枠内)
 
@@ -142,7 +142,7 @@ flowchart TB
 
 ## Tailscale proxy は Pod ラベルで識別できない
 
-適用直後、**UI 経路だけが 502** になりました。Hubble でドロップを観測すると:
+適用直後、**UI 経路だけが 502** になりました。Hubble(Cilium 付属のフロー可視化ツール。ポリシーで落とされた通信を drop として表示する)でドロップを観測すると:
 
 ```text
 tailscale/ts-n8n-...:34658 (ID:17903) <> 10.0.0.x:5678 (world) ... DROPPED (TCP Flags: SYN)
