@@ -44,7 +44,7 @@ HEAD   /{bucket}/{key}     メタデータのみ
 
 XML レスポンス(JSON ではなく、2006 年の設計のまま)と、`x-amz-*` 拡張ヘッダ群が特徴です。
 
-### 2.2 認証: SigV4 — 互換実装の最初の関門
+### 2.2 認証: SigV4 — 互換実装の前提条件
 
 現行の認証は **AWS Signature Version 4**。リクエストを正規化(canonical request。メソッド・パス・クエリ・ヘッダ・ペイロードのハッシュを決められた順序と書式で 1 つの文字列に整形したもの)し、日付・リージョン・サービス名から導出した鍵で HMAC-SHA256 署名して `Authorization` ヘッダに載せます。互換ストレージを名乗るなら[この署名検証の実装が事実上必須](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html)で、旧 SigV2 のみ対応の実装は現代のクライアントから使えません。
 
@@ -57,7 +57,7 @@ virtual-hosted: https://{bucket}.s3.isk01.sakurastorage.jp/key
 path-style:     https://s3.isk01.sakurastorage.jp/{bucket}/key
 ```
 
-AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style を使います**(ワイルドカード TLS 証明書が不要で、実装側の対応漏れが起きにくいため)。クライアント側では `force_path_style` 系の設定で明示できます。
+AWS は 2019 年に path-style の廃止を予告して利用者からの反対を受け、[既存バケットについては撤回](https://aws.amazon.com/blogs/aws/amazon-s3-path-deprecation-plan-the-rest-of-the-story/)しました(AWS 公式ブログ)。**互換ストレージでは path-style を使います**(ワイルドカード TLS 証明書が不要で、実装側の対応漏れが起きにくいため)。クライアント側では `force_path_style` 系の設定で明示できます。
 
 ### 2.4 その他の主要メカニズム
 
@@ -88,13 +88,13 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 商用の互換サービス(Cloudflare R2、Backblaze B2、Wasabi、**さくらのオブジェクトストレージ**等)もこの生態系の上にあり、どれも「AWS の API リファレンスを読み、s3-tests 的な検証で確からしさを担保する」という同じ方法で互換性を確保しています。
 
-## 4. ケーススタディ: 2025 年 1 月、AWS SDK の更新で互換実装が一斉に動作不能になった
+## 4. ケーススタディ: 2025 年 1 月、AWS SDK の更新で多くの互換実装へのアップロードが失敗した
 
 「片務的な標準」の弱点が表面化した最近の実例です。
 
 - 2024-12: AWS が S3 の[デフォルトのデータ整合性保護](https://aws.amazon.com/about-aws/whats-new/2024/12/amazon-s3-default-data-integrity-protections)を発表 — アップロード時に CRC32/CRC64NVME チェックサム(転送中のデータ破損を検出するための誤り検出符号)を自動付与
 - 2025-01: 各言語の AWS SDK がこれを**デフォルト有効**でリリース([aws-sdk-go-v2 の告知](https://github.com/aws/aws-sdk-go-v2/discussions/2960)等)
-- 直後: `x-amz-checksum-crc32 ... not implemented` — チェックサム未実装の互換サービス(当時の Cloudflare R2、旧 MinIO、GCS の XML 互換 API など)への**アップロードが軒並み失敗**。[aws-sdk-go-v2 の公式ディスカッション](https://github.com/aws/aws-sdk-go-v2/discussions/2960)にも「サードパーティの S3 互換サービスでは失敗し得る」旨と回避設定が明記されています
+- 直後: `x-amz-checksum-crc32 ... not implemented` — チェックサム未実装の互換サービス(当時の Cloudflare R2、旧 MinIO、GCS の XML 互換 API など)への**アップロードが相次いで失敗**。[aws-sdk-go-v2 の公式ディスカッション](https://github.com/aws/aws-sdk-go-v2/discussions/2960)にも「サードパーティの S3 互換サービスでは失敗し得る」旨と回避設定が明記されています
 
 回避策として SDK には `when_required` 設定(環境変数 `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` / `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`)が用意されました([AWS 公式: Data Integrity Protections](https://docs.aws.amazon.com/sdkref/latest/guide/feature-dataintegrity.html))。互換サービス各社はチェックサム対応を急ぐことになりました。
 

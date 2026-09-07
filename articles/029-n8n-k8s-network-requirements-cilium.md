@@ -79,7 +79,7 @@ n8n への配送は、durable consumer を持つ小さなブリッジが行い�
 
 > Tailscale Funnel requires a node attribute (`nodeAttrs`) of `funnel` in your tailnet policy file to tell Tailscale who can use Funnel.
 
-これを付与するまでは、`tailscale funnel status` が「Funnel on」を表示していても**公開 DNS レコードが配布されず、外部からは到達できません**(実測。GitHub からの配送は 502 になりました)。ローカル表示と実際の公開状態が食い違う点は要注意です。
+これを付与するまでは、`tailscale funnel status` が「Funnel on」を表示していても**公開 DNS レコードが配布されず、外部からは到達できません**(実測。GitHub からの配送は 502 になりました)。ローカル表示と実際の公開状態が食い違う点に注意が必要です。
 
 ### Funnel を不採用にした理由: 送信元制限ができない
 
@@ -95,7 +95,7 @@ GitHub → API Gateway(リソースポリシー: GitHub の hooks CIDR のみ許
 - クラスタ側は外向き接続だけになり、**インターネットからの着信経路がゼロ**になります
 - 費用は実測イベント量(月 100 件強)で月 1 円未満(API Gateway のリクエスト課金のみ。Lambda / SQS は常時無料枠内)
 
-Funnel は「手早く 1 サービスを公開する」には便利です。ただし送信元制限を通信要件に含めるなら、選ぶべきは AWS 側リレーです。
+Funnel は「手早く 1 サービスを公開する」には便利です。ただし送信元制限を通信要件に含める場合は、AWS 側リレーが要件を満たします。
 
 ## 通信要件マトリクスを書く
 
@@ -157,7 +157,7 @@ Tailscale の Ingress proxy は、バックエンドへの接続を **tailnet �
     - ports: [{ port: "5678", protocol: TCP }]
 ```
 
-「Tailscale operator の Ingress 配下に Cilium ポリシーを敷くときは、proxy を Pod ラベルではなく tailnet CIDR で許可する」——この 1 行が本記事でいちばん伝えたい実測です。
+「Tailscale operator の Ingress 配下に Cilium ポリシーを敷くときは、proxy を Pod ラベルではなく tailnet CIDR で許可する」——本記事の主な実測結果です。
 
 ## 障害の切り分け(まず Hubble を見る)
 
@@ -168,7 +168,7 @@ flowchart TB
   L[ノード負荷で k8s API の応答が遅延] --> P[Patroni が DCS に書けず自ら降格]
   P --> R[PostgreSQL 再起動]
   R --> N[n8n の起動が長引く]
-  N --> K[liveness に殺されて再起動ループ]
+  N --> K[liveness で再起動されループ]
   K --> S{切り分けはまず Hubble}
   S -->|ドロップあり| POL[ポリシーを疑う]
   S -->|ドロップなし| OTH[原因は別にある ← 今回はこちら]
@@ -178,12 +178,12 @@ flowchart TB
 2. 共有 PostgreSQL の [Patroni](https://patroni.readthedocs.io/)(PostgreSQL のレプリケーションとリーダー選出を管理する HA ツール)が DCS(Distributed Configuration Store。リーダー情報を置く分散合意ストアで、この構成では k8s API がその役割)に書けず**自ら降格**(`demoting self because DCS is not accessible and I was a leader`)
 3. DB 再起動で n8n の起動(crash recovery 込み)が長引き、liveness probe に再起動されてループ
 
-対処は n8n の起動猶予を `startupProbe`(最大 10 分)に分離することでした。**ポリシー適用と同時に起きた障害でも、まず Hubble でドロップの有無を確認する**——切り分けの順序が守られていれば、疑う先を間違えません。
+対処は n8n の起動猶予を `startupProbe`(最大 10 分)に分離することでした。**ポリシー適用と同時に起きた障害でも、まず Hubble でドロップの有無を確認する**——切り分けの順序を守ると、疑う先を絞れます。
 
 ## まとめ
 
 1. ポリシーは「書く」より「通信要件を洗い出す」が本体です。マトリクスがそのまま仕様になります
-2. Cilium は方向ごとのデフォルト拒否。probe 用の `fromEntities: [host]` を忘れると Pod が死にます
+2. Cilium は方向ごとのデフォルト拒否。probe 用の `fromEntities: [host]` を忘れると Pod が再起動を繰り返します
 3. Tailscale proxy 経由の ingress は Pod ラベルで許可できないことがあります。tailnet CIDR(100.64.0.0/10)で許可します
 4. 送信元制限が要件なら Funnel ではなく AWS リレー(API Gateway の IP 制限 + Lambda の HMAC)。JetStream を耐久バッファにすれば、クラスタへの着信経路ゼロで GitHub 全イベントを受けられます
 5. 適用直後の障害はまず Hubble で。ドロップが無ければ原因は別にあります

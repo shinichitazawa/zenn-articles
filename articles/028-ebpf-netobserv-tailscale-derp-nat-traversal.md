@@ -42,7 +42,7 @@ NetObserv の eBPF agent は、各 Pod の仮想 NIC(veth。Cilium 環境では 
 | cAdvisor / metrics-server / node-exporter | Pod・ノードの送受信量の合計 | 持たない |
 | eBPF flow(NetObserv) | Pod 単位の相手 IP・ポート・プロトコル・バイト数・RTT | 分かる(暗号化ペイロードの中身は見えない) |
 
-この「Pod 単位で、通信相手の IP:ポートまで分かる」点が重要です。cAdvisor や metrics-server、node-exporter は Pod やノードの送受信の合計は分かっても、通信相手とポートは持ちません(cAdvisor の [Prometheus メトリクス一覧](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md) にある `container_network_*` はインターフェース単位のカウンタ、[node_exporter](https://github.com/prometheus/node_exporter) の netdev コレクタも NIC 単位の統計、[metrics-server](https://github.com/kubernetes-sigs/metrics-server) はそもそも CPU/メモリのリソースメトリクスのみが対象です。いずれも 2026-08 時点)。つまり「`ts-grafana` Pod が外部の 3478/udp をどこへ何回叩いたか」は、これらのメトリクスでは復元できません。
+この「Pod 単位で、通信相手の IP:ポートまで分かる」点が、他の観測手段との違いです。cAdvisor や metrics-server、node-exporter は Pod やノードの送受信の合計は分かっても、通信相手とポートは持ちません(cAdvisor の [Prometheus メトリクス一覧](https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md) にある `container_network_*` はインターフェース単位のカウンタ、[node_exporter](https://github.com/prometheus/node_exporter) の netdev コレクタも NIC 単位の統計、[metrics-server](https://github.com/kubernetes-sigs/metrics-server) はそもそも CPU/メモリのリソースメトリクスのみが対象です。いずれも 2026-08 時点)。つまり「`ts-grafana` Pod が外部の 3478/udp へどこへ何回問い合わせたか」は、これらのメトリクスでは復元できません。
 
 一方で、eBPF flow はあくまでパケットの外側(ヘッダ)を見るため、WireGuard や DERP で暗号化された中身(ペイロード)は見えません。見えるのは「誰が・どこへ・何のプロトコルとポートで・どれだけ」というメタデータに限られます。
 
@@ -64,7 +64,7 @@ map[DstK8S_Namespace:tailscale DstK8S_Name:ts-grafana-tsx58-0
     SrcAddr:172.238.6.179 SrcPort:443 Proto:6 Bytes:331 TimeFlowRttNs:9930000]
 ```
 
-`Proto` は IP プロトコル番号で、`6`=TCP、`17`=UDP、`1`=ICMP です([IANA Protocol Numbers](https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml))。これを宛先ポートとプロトコルで束ねると、Tailscale の各機能が綺麗に分かれて見えます。
+`Proto` は IP プロトコル番号で、`6`=TCP、`17`=UDP、`1`=ICMP です([IANA Protocol Numbers](https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml))。これを宛先ポートとプロトコルで束ねると、Tailscale の各機能が分かれて見えます。
 
 | 役割(推定) | プロトコル/ポート | 観測した相手(例) | 備考 |
 |---|---|---|---|

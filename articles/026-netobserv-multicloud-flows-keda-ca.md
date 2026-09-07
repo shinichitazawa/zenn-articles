@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-以前の記事（NetObserv eBPF Agent — CNI 非依存のネットワーク観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP の 3 クラウドで、GCP は Cluster Autoscaler の GCE provider をフォークして成立させました。
+以前の記事（NetObserv eBPF Agent による CNI 非依存のフロー観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP の 3 クラウドで、GCP は Cluster Autoscaler の GCE provider をフォークして成立させました。
 
 もう 1 つのテーマは検証の仕方です。ノードやワークロードを手で起動してしまうと自動化の検証になりません。そこで **KEDA の cron スケーラが決まった時刻にワークロードを 0→1 に起こし、行き場のない Pod を Cluster Autoscaler が検知してクラウドノードを 0→1 で起動する**、という人手ゼロのチェーンを組み、その通信を NetObserv で観測しました。終了時刻には KEDA が 0 に戻し、Cluster Autoscaler がノードを畳むところまで自動です。
 
@@ -150,7 +150,7 @@ spec:
           command: ["sh","-c","until wget -q -T 3 -O /dev/null http://127.0.0.1:9879/healthz; do sleep 10; done"]
 ```
 
-DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けてはいけません**（後述の注意点 1）。initContainer は、ブート直後に Cilium と agent の初期化が競合しないよう、Cilium の healthz 応答を待ってから agent を開始するための安全策です。
+DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けると問題が起きます**（後述の注意点 1）。initContainer は、ブート直後に Cilium と agent の初期化が競合しないよう、Cilium の healthz 応答を待ってから agent を開始するための安全策です。
 
 ## 観測結果 — 同じ通信を両側から見る
 
@@ -199,7 +199,7 @@ Prometheus 側では、FLP が出す `netobserv_node_flows_total` を既存の p
 | TCP (L4) | 20 B〜（[RFC 9293](https://www.rfc-editor.org/rfc/rfc9293)） | **SrcPort / DstPort**、Seq/Ack、Flags（SYN/ACK/FIN…）、Window | 残り 2 つ（src/dst port） |
 | ペイロード (L7) | 可変 | HTTP リクエスト行など | flow 識別には使わない |
 
-本記事で観測した flow レコードと突き合わせると、`SrcAddr: 10.0.0.8` / `DstAddr: 10.0.3.150` は IPv4 ヘッダの送信元/宛先フィールド、`DstPort: 80` は TCP ヘッダの宛先ポート、`Proto: 6` は IPv4 ヘッダの Protocol フィールドの値（TCP）そのものです。つまり agent が出力する 1 行は、この 3 層のヘッダから 5 フィールドを抜き出して束ねたものにすぎません。eBPF プログラムは TC(tcx) フックで生のフレームを受け取り、EtherType → IPv4 の Protocol → TCP/UDP のポートと**オフセットをたどってこの 5 つを読み**、同じ 5-tuple のパケットを 1 つの flow レコードに集約して Bytes / Packets を加算します。
+本記事で観測した flow レコードと突き合わせると、`SrcAddr: 10.0.0.8` / `DstAddr: 10.0.3.150` は IPv4 ヘッダの送信元/宛先フィールド、`DstPort: 80` は TCP ヘッダの宛先ポート、`Proto: 6` は IPv4 ヘッダの Protocol フィールドの値（TCP）そのものです。つまり agent が出力する 1 行は、この 3 層のヘッダから 5 フィールドを抜き出して束ねたものです。eBPF プログラムは TC(tcx) フックで生のフレームを受け取り、EtherType → IPv4 の Protocol → TCP/UDP のポートと**オフセットをたどってこの 5 つを読み**、同じ 5-tuple のパケットを 1 つの flow レコードに集約して Bytes / Packets を加算します。
 
 ここで言う「フック」は、**カーネル内のパケット通過点に、実行したい関数(eBPF プログラム)を登録できる場所**のことです。TC(tcx) はネットワークデバイスの送受信パス上にあるフックで、Pod の veth をパケットが通過するたびに、カーネルが登録済みのプログラムを**その場で同期的に呼び、通過中のパケットそのものを引数として渡します**。コピーやミラーポートではなく、キャプチャ(pcap のような全量保存)でもありません。プログラムはヘッダを読んでカーネル内の map に加算するだけで即座に返り、パケットは何事もなく宛先へ流れていきます。
 
@@ -217,7 +217,7 @@ flowchart TB
 
 ![1 パケットを L2/L3/L4/L7 に分解した図。flow を一意に決める 5 フィールド(src/dst IP, src/dst port, proto)を枠で強調](/images/026-netobserv-packet-map.png)
 
-同じパケットを、観測ツールごとに「どこを読むか」で重ねると差が一目で分かります。NetObserv は eBPF で L2〜L4 のヘッダを**その場でパース**して 5-tuple を組み立てます。一方 cAdvisor や node-exporter は veth や NIC の**バイトカウンタを読むだけ**で、パケットのヘッダを解釈しません。だから「合計いくら流れたか」しか出せず、通信相手は分かりません。metrics-server はそもそもネットワークを対象にせず CPU/メモリだけです。
+同じパケットを、観測ツールごとに「どこを読むか」で重ねると差が一目で分かります。NetObserv は eBPF で L2〜L4 のヘッダを**その場でパース**して 5-tuple を組み立てます。一方 cAdvisor や node-exporter は veth や NIC の**バイトカウンタを読むだけ**で、パケットのヘッダを解釈しません。そのため「合計いくら流れたか」だけが分かり、通信相手は分かりません。metrics-server はそもそもネットワークを対象にせず CPU/メモリだけです。
 
 ![各観測ソースがパケットのどの層を読むかを重ねたレーン図。eBPF は L2〜L4 を解析、cAdvisor/node-exporter はバイトを数えるだけ、metrics-server は対象外](/images/026-netobserv-packet-taps.png)
 
@@ -240,18 +240,18 @@ flowchart TB
 
 ![上段: eBPF flow の Pod ➜ Pod テーブルとペア別レート(通信相手が分かる)。下段: cAdvisor の Pod 単位合計と node-exporter の NIC 合計(相手は分からない)、および観測レイヤ比較表](/images/026-netobserv-grafana-compare.png)
 
-同じ時間帯の同じ通信を見ても、レイヤごとに見える範囲がまったく違います。
+同じ時間帯の同じ通信を見ても、レイヤごとに見える範囲が異なります。
 
 | ソース | 分かること | 分からないこと |
 | --- | --- | --- |
 | NetObserv (eBPF flow) | **Pod ➜ Pod の通信相手**・向き・バイト/パケット | アプリ層の内容 |
 | cAdvisor (`container_network_*`) | Pod 単位の送受信合計 | 通信相手 |
 | node-exporter (`node_network_*`) | ノード NIC 合計 | Pod も相手も |
-| metrics-server (`kubectl top`) | CPU/メモリ使用量 | ネットワークは一切対象外 |
+| metrics-server (`kubectl top`) | CPU/メモリ使用量 | ネットワークは対象外 |
 
 なお agent には既定で無効の組み込み eBPF フックがあり、`ENABLE_RTT`(TCP RTT)・`ENABLE_DNS_TRACKING`(DNS レイテンシ/応答コード)・`ENABLE_PKT_DROPS`(`kfree_skb` トレースポイントによるドロップ捕捉。tracefs の hostPath マウントが必要)を有効化すると、flow に `TimeFlowRttNs` / `Dns*` / `PktDrop*` フィールドが追加されます。これを FLP でヒストグラム化(`valueScale` で秒に正規化)すれば、ワークロードペア別の RTT p95、DNS レイテンシ、カーネルのドロップ理由別レートまで同じダッシュボードに並びます(上のキャプチャ下段)。
 
-「eBPF 固有」の価値はこの表の 1 行目に尽きます。cAdvisor 以下はどれもインターフェースのカウンタを読んでいるだけなので合計しか出せず、「argocd-repo-server が application-controller と話している」という**ペアの情報**はカーネル内で flow(5-tuple)を捕捉する eBPF でしか得られません。なお NetObserv の専用 UI(flow テーブルやトポロジ画面)は、公式 README によると OpenShift Console プラグインとしても standalone console としてもデプロイできます。
+この表の 1 行目が「eBPF 固有」の価値にあたります。cAdvisor 以下はいずれもインターフェースのカウンタを読むため合計だけが分かり、「argocd-repo-server が application-controller と話している」という**ペアの情報**は、この比較の中ではカーネル内で flow(5-tuple)を捕捉する eBPF だけが得られます。なお NetObserv の専用 UI(flow テーブルやトポロジ画面)は、公式 README によると OpenShift Console プラグインとしても standalone console としてもデプロイできます。
 
 > The web console can be deployed either as a standalone console, or as a [console plugin](https://github.com/openshift/console/tree/master/frontend/packages/console-dynamic-plugin-sdk) for OpenShift.
 >
@@ -318,9 +318,9 @@ gce_cloud_provider.go:122] Node azure-cil-azure-cil-vmss000004 has non-GCE
        10.0.0.180 ⇄ 10.0.5.44 が出現
 ```
 
-kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from-0 のシミュレーション段階で Pod の nodeSelector / toleration と突き合わせて「このグループなら賄える」と判断されています。**GCE provider の 1 箇所の契約違反さえ直せば、混在 providerID クラスタでも AWS / Azure と同列に使える**ことが確認できました。
+kube-env に仕込んだ label/taint の広告も実際に機能し、scale-from-0 のシミュレーション段階で Pod の nodeSelector / toleration と突き合わせて「このグループなら賄える」と判断されています。**GCE provider の `NodeGroupForNode` を 1 箇所直せば、混在 providerID クラスタでも AWS / Azure と同列に使える**ことが確認できました。
 
-この結果は upstream にも報告しました（[kubernetes/autoscaler#10140](https://github.com/kubernetes/autoscaler/issues/10140)）。ちょうど `NodeGroupForNode` まわりの契約を明確化する議論（[#9877](https://github.com/kubernetes/autoscaler/issues/9877)）が進行中で、AWS 側でも EKS Hybrid Nodes で同型の問題が報告・修正されており（[#8045](https://github.com/kubernetes/autoscaler/issues/8045)）、混在 providerID クラスタは provider 実装が想定してこなかった領域だということが分かります。
+この結果は upstream にも報告しました（[kubernetes/autoscaler#10140](https://github.com/kubernetes/autoscaler/issues/10140)）。ちょうど `NodeGroupForNode` まわりの契約を明確化する議論（[#9877](https://github.com/kubernetes/autoscaler/issues/9877)）が進行中で、AWS 側でも EKS Hybrid Nodes で同型の問題が報告・修正されており（[#8045](https://github.com/kubernetes/autoscaler/issues/8045)）、混在 providerID クラスタは provider 実装が想定してこなかった領域だと考えられます。
 
 ![パッチ版 Cluster Autoscaler での GCP チェーン成立後の flow レート。凡例の instance が観測しているエージェント(上 2 つが rpi0 側、下が GCP 側)で、rpi0 → GCP の pod-to-pod 通信を両側から捉えている。時刻は UTC 表示(09:10 = 18:10 JST)](/images/026-netobserv-prom-gcp-flows.png)
 
@@ -351,9 +351,9 @@ flowchart TB
   NG["✗ prom を write ステージに書く<br/>→ 起動時に getWriter で panic"] -.-> Wr
 ```
 
-「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、というのが勘違いしやすい点の正体です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
+「Prometheus に出す＝書き出し(write)」と考えると write に書きたくなりますが、FLP の分類では「flow をメトリクスという別形式へ変換する」encode の仕事、という分類の違いが混同しやすい点です（残る extract は集計メトリクスを導出するステージで、今回は未使用）。
 
-### 3. ASG のタグが消えると Cluster Autoscaler は静かに沈黙する
+### 3. ASG のタグが消えると Cluster Autoscaler はエラーを出さずに何もしなくなる
 
 AWS 側で最初、Cluster Autoscaler が何の反応も示さなかった原因は、ASG に付けていたタグが消えていたことでした（`Name` タグ 1 つだけが残った状態）。Cluster Autoscaler は **ASG をタグで発見し、起動されるノードの姿もタグで知ります**（[AWS provider README](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/cloudprovider/aws/README.md)）。筆者環境で必要だったのは次の 5 つです。
 
@@ -380,7 +380,7 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 
 スポットの入れ替わりでノード側の IP が変わっても同じことが起きます。
 
-**対処**: Pod 名や workload 名で連続して追いたい場合は、本文「Pod 名で見る」節の Kubernetes enrichment を有効にし、`SrcK8S_Name` などの Kubernetes 名ラベルで集計します。direct-flp の素の flow は IP の世界である、という事実の帰結です。
+**対処**: Pod 名や workload 名で連続して追いたい場合は、本文「Pod 名で見る」節の Kubernetes enrichment を有効にし、`SrcK8S_Name` などの Kubernetes 名ラベルで集計します。direct-flp の素の flow は IP をキーにしている、という仕様によるものです。
 
 ### 5. 外部からインスタンスを消すと Cluster Autoscaler が backoff する
 
@@ -390,7 +390,7 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 2. ちょうど走っていた Cluster Autoscaler 自身のリサイズ要求と競合し、その操作が「失敗」として記録された
 3. ノードグループが**scale-up backoff** 状態になり、以後しばらく増設要求そのものを止めた
 
-このとき Kubernetes のイベントには何も出ず、手掛かりは Cluster Autoscaler のログの `Node group azure-cil-vmss is not ready for scaleup - backoff` の一行だけでした。原則は「Cluster Autoscaler が管理するリソースには外から触らない」。触ってしまった場合、backoff の解消には時間経過を待つか Cluster Autoscaler を再起動します。
+このとき Kubernetes のイベントには何も出ず、手掛かりは Cluster Autoscaler のログの `Node group azure-cil-vmss is not ready for scaleup - backoff` の一行だけでした。Cluster Autoscaler が管理するリソースは外から操作しない方が安全です。操作してしまった場合、backoff の解消には時間経過を待つか Cluster Autoscaler を再起動します。
 
 ## まとめ
 

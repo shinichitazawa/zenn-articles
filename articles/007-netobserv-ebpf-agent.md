@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を掘ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent(以下 eBPF Agent)は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測コンポーネントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
+EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を扱ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent(以下 eBPF Agent)は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測コンポーネントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
 本記事は 2026-05 時点の調査・検証に基づく。
 
@@ -148,11 +148,11 @@ sudo -E bin/netobserv-ebpf-agent
 }
 ```
 
-「`tcpdump` 的に試す」用途に最適。本記事の検証もこのモードで行う。
+「`tcpdump` 的に試す」用途に向く。本記事の検証もこのモードで行う。
 
 ## EKS で動かすときの注意点
 
-README の Deployment test 節に重要な記述がある[^netobserv-readme]:
+README の Deployment test 節に次の記述がある[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF.
 
@@ -220,7 +220,7 @@ flowchart TB
 - 既に Cilium 採用 or 採用予定 → Hubble で十分。NetObserv を別途入れる理由は薄い
 - **CNI を変えず観測だけ追加したい** (例: VPC CNI on EKS の通常ノードグループ) → NetObserv が有力
 - **L7 プロトコル分析が重要** (HTTP レイテンシ、gRPC 観測) → Hubble の方が強い
-- **OpenShift 環境** → NetObserv 一択 (Red Hat 公式バックエンド)
+- **OpenShift 環境** → NetObserv が第一候補 (Red Hat 公式バックエンド)
 
 ## 実機検証
 
@@ -282,7 +282,7 @@ map[AgentIP:172.17.0.5 Bytes:1709 DstAddr:172.23.210.65 DstMac:02:42:b2:d9:d9:73
 - `DstAddr:10.42.0.x` → k3s の Pod CIDR
 - `Interfaces:[veth6947b921 cni0]` → k3s 内部 (flannel CNI 経由) のフロー
 
-Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が 完全に機能 していることを確認。
+Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が機能していることを確認。
 
 ここまでで「READMEの主張通り、kernel 5.8+ + BTF + privileged で direct-flp モードが動く」を実証しました。
 
@@ -304,7 +304,7 @@ apply:
 kubectl apply -k netobserv/overlays/rasp
 ```
 
-`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule されないと意味がないので。
+`overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule させる必要があるためです。
 
 Pod は約 60 秒で Running 状態になった (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
 
@@ -319,7 +319,7 @@ level=fatal msg="can't instantiate NetObserv eBPF Agent"
          no BTF found for kernel version 6.6.62+rpt-rpi-2712: not supported"
 ```
 
-`no BTF found for kernel version 6.6.62+rpt-rpi-2712` が決定的なエラー。
+`no BTF found for kernel version 6.6.62+rpt-rpi-2712` が原因を示すエラー。
 
 裏付けとして、busybox Pod を Pi-1 上に直接スケジュールして `/sys/kernel/btf/vmlinux` を確認:
 
@@ -360,7 +360,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
 4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動きません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 
-Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で十分。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢として記憶しておく。
+Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で足りる。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢になる。
 
 ## まとめ
 

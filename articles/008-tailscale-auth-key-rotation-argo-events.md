@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用の頭痛の種になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、忘れた瞬間に内部通信が落ちる。
+VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用上の負担になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、更新を忘れると内部通信が止まる。
 
 この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお記事末尾の付録では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は本編で足ります)。
 
@@ -225,7 +225,7 @@ spec:
 
 Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと機能しない。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消える。
 
-対策は単純: RBAC を `argo` namespace 側の overlay に置く。
+対策は次のとおり: RBAC を `argo` namespace 側の overlay に置く。
 
 ```yaml:sensor-tailscale-rotation-submit-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -335,7 +335,7 @@ spec:
           maxDuration: "10m"
 ```
 
-rotate.py の中身は 6 ステップだけ:
+rotate.py の中身は 6 ステップです:
 
 ```python:rotate.py
 # 1. Tailscale OAuth client → bearer token
@@ -434,7 +434,7 @@ spec:
     }
 ```
 
-Kro RGD が裏で ACK iam-controller の `Role` CR を生成し、ACK が AWS API を叩いて実 IAM Role を作る、という構図。
+Kro RGD が裏で ACK iam-controller の `Role` CR を生成し、ACK が AWS API を呼び出して実 IAM Role を作る、という構図。
 
 注意: ACK iam-controller の IAM policy 側で `iam:CreateRole` の `Resource` を `arn:aws:iam::*:role/*-irsa` のように pattern 限定している場合、roleName が `-irsa` suffix で終わらないと controller が `AccessDenied` で create に失敗します。命名規約として `-irsa` を必ず付ける運用にしました。
 
@@ -541,13 +541,13 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ## 付録: NATS JetStream を EventBus に使う意味
 
-ここまで「EventSource が webhook を受信し Sensor が filter する」と書いてきたが、両者を直接つないでいるわけではありません。間には `EventBus` という CR が介在し、その実体が NATS JetStream stream です。auth key rotation のような「失敗したら手動回復しないと bastion が落ちる」 critical path では、この backbone の保証セマンティクスが品質の天井を決めるため、ここを深掘りします。
+ここまで「EventSource が webhook を受信し Sensor が filter する」と書いてきたが、両者を直接つないでいるわけではありません。間には `EventBus` という CR が介在し、その実体が NATS JetStream stream です。auth key rotation のような「失敗したら手動回復しないと bastion が落ちる」 critical path では、この backbone の保証セマンティクスが品質の上限を決めるため、ここを深掘りします。
 
 ### EventBus がなぜ必要か
 
 Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できる。
 
-EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が一択になります。
+EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
 
 ### Core NATS と JetStream の違い
 
@@ -556,11 +556,11 @@ NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstre
 - **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消える (fire-and-forget)
 - **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれる。Consumer が落ちて再起動しても、未 ack のメッセージを再配送する
 
-webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補にすらならません。
+webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補になりません。
 
 ### JetStream の実装上の正体
 
-「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem にすぎない[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
+「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem です[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
 
 公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
 
@@ -618,9 +618,9 @@ JetStream の Stream は 3 種類の retention policy を持つ ([公式](https:
 | WorkQueue | consumer が ack したら削除、1 subject に 1 consumer のみ | キュー型 |
 | Interest | consumer が ack するまで保持、consumer 不在なら不要 | pub-sub 風 |
 
-Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ません。
+Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ありません。
 
-storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で 90 日分どころか年単位で保持できる。
+storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で年単位で保持できる。
 
 ### Consumer の Ack semantics
 

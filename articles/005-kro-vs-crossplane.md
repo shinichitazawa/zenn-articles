@@ -163,7 +163,7 @@ spec:
 Kro を選ぶ理由になりやすい点:
 
 1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
-2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane の multi-cloud は overkill
+2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane のマルチクラウド対応は過剰になります
 3. **学習コスト**: Composition の設計は時間がかかる。RGD は Kubernetes YAML の延長で書ける
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
 
@@ -229,7 +229,7 @@ spec:
     - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 ```
 
-ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付ける。Pod が IRSA で AWS API を叩ける。
+ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付ける。Pod が IRSA で AWS API を呼び出せる。
 
 ## 採用判断フロー
 
@@ -246,7 +246,7 @@ flowchart TB
 
 ## まとめ
 
-- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に最適
+- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に向く
 - **Crossplane**: マルチクラウド、大規模、エコシステム成熟
 - **AWS 中心 + EKS Hybrid Nodes** の構成では Kro が有力
 

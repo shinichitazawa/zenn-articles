@@ -8,14 +8,14 @@ published: false
 
 ## はじめに
 
-商用 LLM API (Anthropic / OpenAI / Bedrock 等) への依存を減らし、ベンダーロックインを回避する目的で、OSS LLM を EKS 上で並行起動して A/B 比較する構成を検証しました。後半では Bedrock Nova 3 モデルとの横断比較・コスト比較まで扱います。論点は次の 4 つに収束します。
+商用 LLM API (Anthropic / OpenAI / Bedrock 等) への依存を減らし、ベンダーロックインを回避する目的で、OSS LLM を EKS 上で並行起動して A/B 比較する構成を検証しました。後半では Bedrock Nova 3 モデルとの横断比較・コスト比較まで扱います。論点は次の 4 つです。
 
 1. **モデル選定**: ライセンス自由 (Apache 2.0 / MIT) + 用途別に十分な品質
 2. **インフラ**: GPU 高額化を避ける CPU 推論 + scale-to-zero でコスト最小化
 3. **抽象化**: 既存 SDK を変えずに backend を差し替える router 層
 4. **評価**: 同一プロンプトで複数モデルを比較し、品質スコアを得る基盤
 
-結論を先に書きますと、LiteLLM Router (重み付きランダム) + ollama on EKS Auto Mode (Graviton3) + KEDA(Kubernetes Event-driven Autoscaling。メトリクスを条件に Pod 数を 0 まで増減させる autoscaler)の scale-to-zero + Langfuse + LLM-as-judge の組み合わせで、4 モデル並行運用が 月額 $80 程度 から成立します。
+LiteLLM Router (重み付きランダム) + ollama on EKS Auto Mode (Graviton3) + KEDA(Kubernetes Event-driven Autoscaling。メトリクスを条件に Pod 数を 0 まで増減させる autoscaler)の scale-to-zero + Langfuse + LLM-as-judge の組み合わせで、4 モデル並行運用が 月額 $80 程度 から成立します。
 
 想定読者は、EKS 上で LLM 推論基盤を運用しており、商用 API から OSS への段階移行を検討している中級者です。
 
@@ -33,7 +33,7 @@ published: false
 | データ主権 | 入力データがベンダーのインフラを経由する。学習に使われないと契約しても、ネットワーク的には経由 |
 | コスト線形性 | 利用量に比例して費用増。月数億トークン規模になると本格的に効く |
 
-これらを同時に解決するには、OSS LLM をセルフホスト + OpenAI 互換 API で抽象化するのが王道です。本検証はその具体実装を 4 モデルで並行 A/B 比較する形で組みました。
+これらを同時に解決するには、OSS LLM をセルフホスト + OpenAI 互換 API で抽象化するのが一般的な方法です。本検証はその具体実装を 4 モデルで並行 A/B 比較する形で組みました。
 
 ## 全体アーキテクチャ
 
@@ -226,7 +226,7 @@ router_settings:
 Caller 側は `"model": "ab-router"` を指定するだけで 4 候補に均等に振り分けられます。応答の `x-litellm-model` header で実際に応答したモデルを確認できます。
 
 :::message
-LiteLLM の `telemetry: false` を強く推奨します。これは OpenTelemetry の話ではなく、LiteLLM 自身の利用状況を開発元に送る別機能で、[公式 CLI ドキュメント](https://docs.litellm.ai/docs/proxy/cli)は `--telemetry` を「Help track usage of this feature. Turn off for privacy.」と説明しています(既定 `True`。2026-09 取得)。config では [公式サンプル proxy_server_config.yaml](https://github.com/BerriAI/litellm/blob/main/proxy_server_config.yaml) のとおり `litellm_settings.telemetry: False` で無効化できます。データ主権を取るならデフォルトで遮断すべきです。なお OpenTelemetry 連携は `callbacks: ["otel"]` という別経路で、こちらは自社 collector に送るので問題ありません。
+LiteLLM の `telemetry: false` を強く推奨します。これは OpenTelemetry の話ではなく、LiteLLM 自身の利用状況を開発元に送る別機能で、[公式 CLI ドキュメント](https://docs.litellm.ai/docs/proxy/cli)は `--telemetry` を「Help track usage of this feature. Turn off for privacy.」と説明しています(既定 `True`。2026-09 取得)。config では [公式サンプル proxy_server_config.yaml](https://github.com/BerriAI/litellm/blob/main/proxy_server_config.yaml) のとおり `litellm_settings.telemetry: False` で無効化できます。データ主権を重視する場合は無効化が必要です。なお OpenTelemetry 連携は `callbacks: ["otel"]` という別経路で、こちらは自社 collector に送るので問題ありません。
 :::
 
 ## Langfuse + LLM-as-judge
@@ -279,7 +279,7 @@ OSS 4 モデル間の比較だけでは「OSS で本当に商用 API を代替�
 | Nova Lite | `apac.amazon.nova-lite-v1:0` | 300K | text/image/video | 低コスト multimodal |
 | Nova Micro | `apac.amazon.nova-micro-v1:0` | 128K | text only | 最低レイテンシ、超低コスト |
 
-これらは A/B router (`ab-router`) には含めず、直接 model 名指定で呼び出して比較する位置づけにします。OSS の A/B 評価とは別 judge セッションを組む方が判定が散らかりません。
+これらは A/B router (`ab-router`) には含めず、直接 model 名指定で呼び出して比較する位置づけにします。OSS の A/B 評価とは別 judge セッションを組む方が判定が混在しません。
 
 ```yaml:litellm-bedrock-nova.yaml
 - model_name: bedrock-nova-pro
@@ -445,7 +445,7 @@ Worker pod の権限は Secrets Manager の GetSecretValue 2 つだけにしま�
 }
 ```
 
-Bedrock 呼び出しは LiteLLM proxy 経由で行うため、本 Role に Bedrock 権限は持たせません。LiteLLM 側の IRSA で Bedrock InvokeModel を持つので、責務が綺麗に分離します。
+Bedrock 呼び出しは LiteLLM proxy 経由で行うため、本 Role に Bedrock 権限は持たせません。LiteLLM 側の IRSA で Bedrock InvokeModel を持つので、責務が分離します。
 
 ### judge workflow のコスト試算
 
@@ -500,7 +500,7 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 - モデルは商用利用可能なライセンスで選びます（①③④は Apache 2.0 / MIT。②のみ PLaMo Community License で、本文の訂正どおり例外扱いです）
 - **CPU 推論 (Graviton3 + NEON/SVE + GGUF Q4_K_M)** で 3-20B クラスは実用速度 (15-60 token/s) に到達します
 - **Langfuse + LLM-as-judge** で品質スコアリングを自動化し、winner 決定を客観化できます
-- `telemetry: false` (開発元への利用状況送信の遮断) と OpenTelemetry callback は別物です。データ主権を取るなら前者は必ず切ってください
+- `telemetry: false` (開発元への利用状況送信の遮断) と OpenTelemetry callback は別物です。データ主権を重視する場合は前者の無効化が必要です
 
 ## 参考
 

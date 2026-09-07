@@ -8,9 +8,9 @@ published: false
 
 ## はじめに
 
-ローカルの Raspberry Pi で動かしている k3s クラスタを Cilium 化したい、あるいは将来 EKS Hybrid Nodes のノードとして使いたい。そう考えたときに必ずぶつかるのが「うちの Pi はそもそも対応しているのか？ ダメなら OS をアップデートすれば直るのか？」という問いです。
+ローカルの Raspberry Pi で動かしている k3s クラスタを Cilium 化したい、あるいは将来 EKS Hybrid Nodes のノードとして使いたい。そう考えたときによく直面するのが「うちの Pi はそもそも対応しているのか？ ダメなら OS をアップデートすれば直るのか？」という問いです。
 
-結論を先に言うと、制約は「OS 層で直るもの」と「CPU のシリコン世代でしか直らないもの」の 2 層に分かれます。この切り分けを間違えると「OS を新しくしたのに動かない」「Pi を買い替えたら一発だった」という遠回りをします。本記事はその境界線を、公式ドキュメントを引きながら引きます。
+制約は「OS 層で直るもの」と「CPU のシリコン世代でしか直らないもの」の 2 層に分かれます。この切り分けを間違えると「OS を新しくしたのに動かない」「Pi を買い替えたら一発だった」という遠回りをします。本記事はその境界線を、公式ドキュメントを引きながら引きます。
 
 想定読者は、Raspberry Pi 上で k3s / Kubernetes を運用していて Cilium (eBPF CNI) や EKS Hybrid Nodes に踏み込もうとしている中級者です。Pi のモデル（3 / 4 / 5）ごとに結論が変わるので、自分の手元のモデルに読み替えてください。
 
@@ -27,9 +27,9 @@ published: false
 | Cilium の kernel 要件（5.10+ / BTF） | ① OS 層 | OS（kernel） | ✅ 直る | Cilium System Requirements |
 | Armv8.2-A 命令を要求するバイナリ | ② CPU 層 | CPU（シリコン） | ❌ 直らない | Arm Cortex TRM |
 
-上 3 つは OS / kernel / 設定の話なので、適切な OS を入れれば解決します。最後の 1 つだけは CPU の世代に焼き付いた制約で、OS をいくら新しくしても命令セットは生えません。ここを混同しないことが本記事の主題です。
+上 3 つは OS / kernel / 設定の話なので、適切な OS を入れれば解決します。最後の 1 つだけは CPU の世代に焼き付いた制約で、OS を更新しても命令セットは追加されません。この区別が本記事の主題です。
 
-図にすると、制約は次の 2 層に分かれ、CPU 層だけが OS 更新で越えられない壁になります。
+図にすると、制約は次の 2 層に分かれ、CPU 層だけが OS 更新では解消できない制約になります。
 
 ```mermaid
 flowchart TB
@@ -62,7 +62,7 @@ flowchart TB
 
 ## 前提: k3s は Cilium に対応している
 
-まず誤解を解いておくと、k3s は Cilium に公式に対応しています。k3s は標準で Flannel + kube-proxy を同梱しますが、それらを無効化して Cilium に差し替える構成が用意されています。
+k3s は Cilium に公式に対応しています。k3s は標準で Flannel + kube-proxy を同梱しますが、それらを無効化して Cilium に差し替える構成が用意されています。
 
 [k3s 公式の Custom CNI 手順](https://docs.k3s.io/networking/basic-network-options)によると、
 
@@ -95,7 +95,7 @@ cilium install --version 1.19.5 \
 
 EKS Hybrid Nodes のノードは、nodeadm が対応する OS でなければサポートされません。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html) の検証済み OS は Amazon Linux 2023 / Ubuntu 20.04・22.04・24.04 / RHEL 8・9 などです。
 
-Raspberry Pi で素直に対応マトリクスに乗せるなら、Raspberry Pi OS ではなく Ubuntu Server 24.04 LTS の arm64 を入れるのが定石です。これは OS 層の話なので、OS を入れ替えれば解決します。
+Raspberry Pi で対応マトリクスに沿うなら、Raspberry Pi OS ではなく Ubuntu Server 24.04 LTS の arm64 を入れる方法があります。これは OS 層の話なので、OS を入れ替えれば解決します。
 
 ### 2. Cilium の kernel 要件
 
@@ -129,7 +129,7 @@ $ ls /sys/kernel/btf/vmlinux
 ls: cannot access '/sys/kernel/btf/vmlinux': No such file or directory
 ```
 
-kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、BTF だけが欠けているため、[Cilium System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) の必須項目 `CONFIG_DEBUG_INFO_BTF=y` を満たせません。この状態で k3s の flannel を外して Cilium を入れると、Cilium agent が CO-RE の eBPF プログラムをロードできず、ノードが Ready になりません。つまり CPU 世代（Armv8.2-A）以前に、OS 層の BTF 欠如で Cilium が動かないわけです。逆に言えば、これはまさに「OS 層の制約」であり、Ubuntu 24.04 arm64（BTF 有効）へ載せ替えれば解消します。
+kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、BTF だけが欠けているため、[Cilium System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) の必須項目 `CONFIG_DEBUG_INFO_BTF=y` を満たせません。この状態で k3s の flannel を外して Cilium を入れると、Cilium agent が CO-RE の eBPF プログラムをロードできず、ノードが Ready になりません。つまり CPU 世代（Armv8.2-A）以前に、OS 層の BTF 欠如で Cilium が動かないわけです。逆に言えば、これは「OS 層の制約」であり、Ubuntu 24.04 arm64（BTF 有効）へ載せ替えれば解消します。
 
 :::message
 ここまでの 2 つは「OS を Ubuntu 24.04 arm64 にする」だけで両方クリアできます。OS 更新が効くのはこの層まで、というのが次節との境界になります。
@@ -137,7 +137,7 @@ kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、B
 
 ## OS 更新で直らない制約: Armv8.2-A
 
-ここからが本記事の核心です。一部のコンテナイメージは、起動時に次のようなエラーで落ちることがあります。
+一部のコンテナイメージは、起動時に次のようなエラーで落ちることがあります。
 
 ```text
 Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.
@@ -145,7 +145,7 @@ Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor
 
 この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、Armv8.2 準拠かつ Cryptography Extension 付き（Armv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。同ページは回避策として kube-proxy add-on v1.30 を使い続ける方法を案内していました。しかし v1.30 は 2026 年 7 月に延長サポートが終了しています。そのため現時点で残る選択肢は、upstream の custom kube-proxy image を使うことです。
 
-これは CPU の命令セット世代の問題で、OS や kernel をいくら新しくしても直らません。なぜなら、無い命令はソフトウェアでは生やせないからです。
+これは CPU の命令セット世代の問題で、OS や kernel をいくら新しくしても直らません。実装されていない命令をソフトウェアで補うことはできないためです。
 
 Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバージョンが違います。
 
@@ -167,10 +167,10 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 - Raspberry Pi 4 Model B = Cortex-A72（[Raspberry Pi 4 specifications](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/specifications/)）
 - Raspberry Pi 3 Model B+ = Cortex-A53（[Raspberry Pi 3 B+ product page](https://www.raspberrypi.com/products/raspberry-pi-3-model-b-plus/)）
 
-整理すると、Armv8.2-A 命令を要求するバイナリは、Armv8-A 止まりの Pi 3 / Pi 4 では物理的に動きません。Pi 5（A76）だけが Armv8.2-A を持ちます。これは silicon に焼き付いた事実なので、OS 更新では絶対に超えられません。
+整理すると、Armv8.2-A 命令を要求するバイナリは、Armv8-A 止まりの Pi 3 / Pi 4 では動きません。Pi 5（A76）だけが Armv8.2-A を持ちます。これは CPU の実装で決まるため、OS 更新では解消できません。
 
 :::message alert
-`Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.` 自体は、コンテナイメージ内の glibc が「より新しい `-march` でビルドされていて Armv8.2-A 命令を含む」ときに出る症状で、具体的にどのイメージ・どのバージョンで踏むかはイメージのビルド条件に依存します。本記事はその個別マッピングまでは断定しません（イメージごとに要確認）。確実に言えるのは「根本原因は CPU 命令セット世代であり、ホスト OS の更新では解決しない」という一点です（根拠は上記 Arm TRM）。
+`Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.` 自体は、コンテナイメージ内の glibc が「より新しい `-march` でビルドされていて Armv8.2-A 命令を含む」ときに出る症状で、具体的にどのイメージ・どのバージョンで踏むかはイメージのビルド条件に依存します。本記事はその個別マッピングまでは断定しません（イメージごとに要確認）。Arm TRM から言えるのは「根本原因は CPU 命令セット世代であり、ホスト OS の更新では解決しない」という一点です（根拠は上記 Arm TRM）。
 :::
 
 ## 回避策(ハード買い替え以外)
@@ -190,21 +190,21 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 3. **baseline 向けに自前で再ビルドしたイメージを使う**
    `-march=armv8-a` 相当でビルドし直せば A53 / A72 でも動きます。運用コストは上がります。
 
-つまり「OS 更新」ではなく「動かすバイナリ側の選択」が Pi 3 / Pi 4 での正しい回避軸になります。
+つまり「OS 更新」ではなく「動かすバイナリ側の選択」が Pi 3 / Pi 4 での回避の方針になります。
 
 ## Pi モデル別の結論
 
 | モデル | CPU / 命令セット | 判定 |
 |---|---|---|
-| Pi 5 | Cortex-A76 / Armv8.2-A | 壁なし。Hybrid Node 候補の本命 |
+| Pi 5 | Cortex-A76 / Armv8.2-A | 制約なし。Hybrid Node 候補として最有力 |
 | Pi 4 | Cortex-A72 / Armv8-A | OS 更新 + kube-proxy replacement で実用回避可 |
 | Pi 3 | Cortex-A53 / Armv8-A | 要件は満たせるが性能面で常用は非推奨 |
 
-- **Raspberry Pi 5（Cortex-A76 / Armv8.2-A）**: 命令セットの壁がありません。Ubuntu 24.04 arm64 化すれば nodeadm 対応・Cilium kernel 要件・Armv8.2-A すべて素直に通ります。Hybrid Node 候補の本命です。
-- **Raspberry Pi 4（Cortex-A72 / Armv8-A）**: OS を Ubuntu 24.04 arm64 にすれば nodeadm / eBPF 要件は満たせます。Armv8.2-A 要求イメージは踏みうるので、Cilium kube-proxy replacement でそもそも upstream kube-proxy を動かさない構成にすると安全です。実用上はこれで回避できます。
+- **Raspberry Pi 5（Cortex-A76 / Armv8.2-A）**: 命令セットの制約がありません。Ubuntu 24.04 arm64 化すれば nodeadm 対応・Cilium kernel 要件・Armv8.2-A をすべて満たします。Hybrid Node 候補として最有力です。
+- **Raspberry Pi 4（Cortex-A72 / Armv8-A）**: OS を Ubuntu 24.04 arm64 にすれば nodeadm / eBPF 要件は満たせます。Armv8.2-A 要求イメージに該当しうるので、Cilium kube-proxy replacement でそもそも upstream kube-proxy を動かさない構成にすると安全です。実用上はこれで回避できます。
 - **Raspberry Pi 3（Cortex-A53 / Armv8-A）**: OS 更新で要件自体は満たせますが、CPU が非力でメモリも少ない個体が多く、Cilium + Hybrid Node 常駐は重いです。検証はできても常用は Pi 4 / 5 を推奨します。
 
-「OS をアップデートすれば対応可になりませんか？」への最終的な答えは、「nodeadm 対応・kernel 要件は OS 更新で直ります。ただし Armv8.2-A の壁は CPU 世代の問題で OS では直りません。Pi 4 以下では『動かすバイナリの選択』で回避します」となります。
+「OS をアップデートすれば対応可になりませんか？」への最終的な答えは、「nodeadm 対応・kernel 要件は OS 更新で直ります。ただし Armv8.2-A の制約は CPU 世代の問題で OS では直りません。Pi 4 以下では『動かすバイナリの選択』で回避します」となります。
 
 ## まとめ
 
@@ -212,7 +212,7 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 2. Pi の制約は OS 層（nodeadm 対応 OS・Cilium kernel 5.10+ / BTF）と CPU シリコン層（Armv8.2-A）に分かれます。
 3. OS 層は Ubuntu 24.04 arm64 化で直ります。CPU 層は OS 更新では直りません（Arm TRM が示す通り A53 / A72 は Armv8-A）。
 4. Pi 3 / Pi 4 で Armv8.2-A を要求するイメージが必要になったら、Cilium kube-proxy replacement などで「動かすバイナリ」を変えて回避します。
-5. 素直に全部通したいなら Pi 5（Cortex-A76 / Armv8.2-A）です。
+5. 制約なく要件をすべて満たすのは Pi 5（Cortex-A76 / Armv8.2-A）です。
 
 ## 参考
 

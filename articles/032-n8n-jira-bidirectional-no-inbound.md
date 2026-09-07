@@ -42,7 +42,7 @@ flowchart TB
 
 ## 発行: n8n から Jira issue を起票する
 
-n8n には Jira Software ノードがあり、issue の作成・更新・遷移・コメントなどを扱えます([n8n 公式ドキュメント](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.jira/))。認証は API トークン(メールアドレス + トークン)か OAuth2 を選べます([Jira credentials](https://docs.n8n.io/integrations/builtin/credentials/jira/))。個人のセルフホスト用途なら API トークンが簡単です。
+n8n には Jira Software ノードがあり、issue の作成・更新・遷移・コメントなどを扱えます([n8n 公式ドキュメント](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.jira/))。認証は API トークン(メールアドレス + トークン)か OAuth2 を選べます([Jira credentials](https://docs.n8n.io/integrations/builtin/credentials/jira/))。個人のセルフホスト用途では API トークンの方が設定手順が少なくて済みます。
 
 作ったワークフローはこの形です。
 
@@ -90,7 +90,7 @@ flowchart TB
 
 - **発行**: API トークンの資格情報を接続し、検証用プロジェクトに issue を実際に起票。連続作成も成功
 - **受信**: 生 Webhook 形式(`jira:issue_created`)と封筒形式(`jira:issue_updated`・ステータス Done)の両方を投入し、いずれも正しく整形・記録され、通知判定(作成と完了は通知対象)まで動作
-- **既知の改善点**: 発行ワークフローで `title` が空のときは Code ノードが例外を投げ、Webhook 応答が HTTP 500 になりました。入力検証は専用の分岐にして 400 を返す方が親切です
+- **既知の改善点**: 発行ワークフローで `title` が空のときは Code ノードが例外を投げ、Webhook 応答が HTTP 500 になりました。入力検証は専用の分岐にして 400 を返す方が呼び出し側で扱いやすくなります
 
 ## まとめ
 

@@ -35,7 +35,7 @@ AWS が提供する「オンプレで Kubernetes」の選択肢は、EKS Hybrid 
 
 出典(2026-08 時点で取得): [EKS Hybrid Nodes overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html) / [Configure CNI for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-cni.html) / [EKS Pricing](https://aws.amazon.com/eks/pricing/) / [Deploy EKS on-premises with AWS Outposts](https://docs.aws.amazon.com/eks/latest/userguide/eks-outposts.html) / [EKS Anywhere docs](https://anywhere.eks.amazonaws.com/docs/overview/)
 
-補足を 3 点だけ。
+補足が 3 点あります。
 
 - Hybrid Nodes の課金は「ノードがクラスタに参加している間の vCPU 時間」です([公式 overview](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html)に、使わないノードはクラスタから外すよう明記があります)
 - Hybrid Nodes では VPC CNI が非対応で、AWS がサポートする CNI は Cilium です(AWS が ECR Public に Cilium のビルドを配布しています。[公式 CNI ページ](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-cni.html))
@@ -43,7 +43,7 @@ AWS が提供する「オンプレで Kubernetes」の選択肢は、EKS Hybrid 
 
 ## 決め手
 
-判断軸は 3 つに絞れます。
+判断軸は次の 3 つです。
 
 1. **接続性**: AWS への安定した常時接続を前提にできるか。できない(切断が常態・エアギャップ)なら、[公式が明言しているとおり](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-overview.html) Hybrid Nodes は対象外で、EKS Anywhere が候補になります
 2. **物理規模**: 自前の小さなハードウェア(Pi 1 台〜)で始めたいのか、ラックを導入できる規模なのか
@@ -61,7 +61,7 @@ flowchart TB
 ## まとめ
 
 - 3 つは競合ではなく、「誰のハードウェアで、コントロールプレーンをどこに置き、AWS にどれだけ繋がるか」の役割分担です
-- Raspberry Pi の自宅クラスタを AWS に寄せる用途では、任意 HW・従量課金・マネージドコントロールプレーンの **EKS Hybrid Nodes が唯一の現実解**でした(Outposts は物理規模で対象外、Anywhere はコントロールプレーン自己運用となり現状の k3s と負担が変わらないため)
+- Raspberry Pi の自宅クラスタを AWS に寄せる用途では、任意 HW・従量課金・マネージドコントロールプレーンの **EKS Hybrid Nodes が最も条件に合いました**(Outposts は物理規模で対象外、Anywhere はコントロールプレーン自己運用となり現状の k3s と負担が変わらないため)
 - Hybrid Nodes を選ぶ場合、CNI は VPC CNI ではなく Cilium になります。この制約は次回以降の検証の前提になります
 
 ## 参考

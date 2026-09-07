@@ -44,7 +44,7 @@ Memory と Tool はプロバイダに依存しないため、プロバイダを�
 
 ## 違い 1: 認証 — 静的キーを消せるのは Bedrock だけ
 
-この認証方式の違いが、3 つの中で最も設計に影響します。
+認証方式の違いは、筆者の構成では設計への影響が最も大きかった項目です。
 
 ### AWS Bedrock
 
@@ -56,7 +56,7 @@ n8n の AWS 資格情報には [2 種類](https://docs.n8n.io/integrations/built
 *Role ARN はドキュメント用のダミー値。「Couldn't connect with these settings」は、この撮影用インスタンスに引き受け先のロールが存在しないため*
 
 
-この「自動探索」の中身が重要です。同ドキュメントによると、n8n は以下の順で資格情報を探し、最初に取得できたものを使います。
+同ドキュメントによると、この「自動探索」で n8n は以下の順に資格情報を探し、最初に取得できたものを使います。
 
 1. 環境変数(`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`、任意で `AWS_SESSION_TOKEN`)
 2. **EKS IRSA**(IAM Roles for Service Accounts。`AWS_ROLE_ARN` と `AWS_WEB_IDENTITY_TOKEN_FILE`)
@@ -85,7 +85,7 @@ const email = (credentials.email as string).trim();
 
 Google Cloud 自体には静的鍵を排除する仕組みがあります。[Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation) は、オンプレやマルチクラウドのワークロードがサービスアカウントキーの代わりにフェデレーション ID で Google Cloud リソースへアクセスするための機能で、公式は「サービスアカウントキーは強力な資格情報であり、適切に管理されないとセキュリティリスクになり得る」と述べ、その「維持管理とセキュリティの負担を排除できる」と説明しています。
 
-しかし n8n のサービスアカウント資格情報にはその接続口がありません(2026-08 時点、上記公式ドキュメントに記載なし)。結果として、Bedrock では消せた静的な秘密情報が Vertex AI では残ります。ここが移植時に最も効いてくる差です。
+しかし n8n のサービスアカウント資格情報にはその接続口がありません(2026-08 時点、上記公式ドキュメントに記載なし)。結果として、Bedrock では消せた静的な秘密情報が Vertex AI では残ります。ここが移植時に効いてくる差です。
 
 ### Azure OpenAI
 
@@ -103,7 +103,7 @@ export class AzureEntraCognitiveServicesOAuth2Api implements ICredentialType {
 	extends = ['oAuth2Api'];
 ```
 
-ただし `extends = ['oAuth2Api']` が示すとおり、これは n8n 汎用の OAuth2 資格情報を継承したもので、Client ID と Client Secret を n8n に保存する方式です。API キーよりは筋が良いものの、Bedrock のように「n8n 側に何も置かない」形にはなりません。
+ただし `extends = ['oAuth2Api']` が示すとおり、これは n8n 汎用の OAuth2 資格情報を継承したもので、Client ID と Client Secret を n8n に保存する方式です。API キーより安全性は高いものの、Bedrock のように「n8n 側に何も置かない」形にはなりません。
 
 ### 認証の比較
 
@@ -150,7 +150,7 @@ Vertex Chat Model ノードのパラメータは [公式ドキュメント](http
 
 ### Azure OpenAI — モデル名ではなく「デプロイ名」
 
-Azure が最も独特です。Azure OpenAI ではモデルを「デプロイ」してから使い、API 呼び出しではモデル名ではなくデプロイ名を指定します。Microsoft の公式ドキュメントは次のように明記しています。
+Azure は他の 2 者と方式が異なります。Azure OpenAI ではモデルを「デプロイ」してから使い、API 呼び出しではモデル名ではなくデプロイ名を指定します。Microsoft の公式ドキュメントは次のように明記しています。
 
 > When you access the model via the API, you need to refer to the deployment name rather than the underlying model name in API calls, which is one of the key differences between OpenAI and Azure OpenAI. OpenAI only requires the model name. Azure OpenAI always requires deployment name, even when using the model parameter.
 >
@@ -165,7 +165,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 
 つまり Azure では n8n を触る前に Azure 側でデプロイを作る作業が前提になり、しかもフロー中の「モデル名」は自分が付けた任意の名前になります。他プロバイダのフローを見比べたときに、ここだけ意味論が違う点は運用上、混乱のもとになり得ます。
 
-3 つの設定画面を並べると、同じ「Chat Model」でも入力を求められるものがまったく違うことが一目で分かります。Bedrock は認証方式とモデルの出自、Vertex はプロジェクトとリージョン、Azure はデプロイ名です。
+3 つの設定画面を並べると、同じ「Chat Model」でも入力を求められるものが異なることが分かります。Bedrock は認証方式とモデルの出自、Vertex はプロジェクトとリージョン、Azure はデプロイ名です。
 
 型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に効いてきます(筆者環境 n8n 2.33.3 での実測)。
 
@@ -223,7 +223,7 @@ export function resolveBedrockRegion(modelName: string, credentialRegion: AWSReg
 }
 ```
 
-同ファイルのコメントは「フル ARN(例: クロスリージョン推論プロファイル)として与えられたモデルは自身のリージョンを持ち、それが資格情報のリージョンを上書きする」と説明しています。資格情報の設定を変えていないのにモデル指定を変えただけで呼び先リージョンが変わり得る点は、意識しておく価値があります。
+同ファイルのコメントは「フル ARN(例: クロスリージョン推論プロファイル)として与えられたモデルは自身のリージョンを持ち、それが資格情報のリージョンを上書きする」と説明しています。資格情報の設定を変えていなくても、モデル指定を変えただけで呼び先リージョンが変わり得る点には注意が必要です。
 
 ### Vertex AI: ロケーションでホスト名が変わる
 
