@@ -28,7 +28,7 @@ published: false
 - Backblaze B2 — [S3 Compatible API(公式)](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api)
 - さくらのオブジェクトストレージ — [Amazon S3 互換 API(公式マニュアル)](https://manual.sakura.ad.jp/cloud/objectstorage/about.html)
 
-自社ネイティブ API を持つ Google までが S3 の顔を併設している点に、この API の支配力が表れています。結果として「AWS が API を変えると、互換実装がそれを追いかける」という**片務的な標準化**が 20 年続いており、この構造が後述の 2025 年の互換性破壊事件を生みます。
+自社ネイティブ API を持つ Google までが S3 互換 API を併設している点に、この API の支配力が表れています。結果として「AWS が API を変えると、互換実装がそれを追いかける」という**片務的な標準化**が 20 年続いており、この構造が後述の 2025 年の互換性破壊を生みます。
 
 ## 2. プロトコルの解剖
 
@@ -42,7 +42,7 @@ GET    /{bucket}?list-type=2   一覧(ListObjectsV2)
 HEAD   /{bucket}/{key}     メタデータのみ
 ```
 
-XML レスポンス(JSON ではない! 2006 年の設計がそのまま)と、`x-amz-*` 拡張ヘッダ群が特徴です。
+XML レスポンス(JSON ではなく、2006 年の設計のまま)と、`x-amz-*` 拡張ヘッダ群が特徴です。
 
 ### 2.2 認証: SigV4 — 互換実装の最初の関門
 
@@ -72,9 +72,9 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 
 ### 3.1 互換性テストという「事実上の適合試験」
 
-中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of **unofficial** Amazon AWS S3 compatibility tests」と明記しているとおり、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースで実装を叩きます。
+中立仕様がない代わりに、コミュニティが作った互換性テストが適合試験の役割を果たしています。代表が **[ceph/s3-tests](https://github.com/ceph/s3-tests)** — Ceph プロジェクト発のテストスイートで、リポジトリ自身が「a set of **unofficial** Amazon AWS S3 compatibility tests」と明記しているとおり、これすら公式適合試験ではありません。boto3 ベースの数百のテストケースを実装に対して実行します。
 
-対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、看板ではなく「自分が使う API サブセットで s3-tests を回した結果」を見るのが確実です。
+対応する S3 API の範囲は実装ごとに大きく異なり(各実装が対応 API 一覧を公式に明記しています。例: [SeaweedFS の対応 API 表](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API))、s3-tests のパス状況もそれに応じて実装間で差が出ます(※パス数の横並び比較データは筆者未確認)。**「S3 互換」は二値ではなくグラデーション**です。採用判断では、「S3 互換」という表示ではなく「自分が使う API サブセットで s3-tests を実行した結果」を見るのが確実です。
 
 ### 3.2 主要なオープンソース実装
 
@@ -86,9 +86,9 @@ AWS は 2019 年に path-style の廃止を予告して大反発を受け、[既
 | [Garage](https://git.deuxfleurs.fr/Deuxfleurs/garage) | Rust / AGPLv3 | 自宅・エッジ向けの軽量分散。地理分散前提の設計 |
 | [LocalStack](https://github.com/localstack/localstack) | Python | テスト用エミュレータとしての S3 実装 |
 
-商用の互換サービス(Cloudflare R2、Backblaze B2、Wasabi、**さくらのオブジェクトストレージ**等)もこの生態系の上にあり、どれも「AWS の API リファレンスを読み、s3-tests 的な検証で確からしさを担保する」という同じゲームをプレイしています。
+商用の互換サービス(Cloudflare R2、Backblaze B2、Wasabi、**さくらのオブジェクトストレージ**等)もこの生態系の上にあり、どれも「AWS の API リファレンスを読み、s3-tests 的な検証で確からしさを担保する」という同じ方法で互換性を確保しています。
 
-## 4. ケーススタディ: 2025 年 1 月、AWS SDK が互換勢を一斉に壊した
+## 4. ケーススタディ: 2025 年 1 月、AWS SDK の更新で互換実装が一斉に動作不能になった
 
 「片務的な標準」の脆さが露呈した最近の実例です。
 
@@ -112,23 +112,23 @@ s5cmd --endpoint-url https://s3.isk01.sakurastorage.jp cp s3://bucket/key ./loca
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 
-# 3) 迷ったら path-style
+# 3) 互換ストレージでは path-style を明示
 #    boto3: Config(s3={'addressing_style': 'path'})
 ```
 
 選定時のチェックリスト:
 
-1. **SigV4 対応か**(2026 年現在、非対応はほぼ論外)
+1. **SigV4 対応か**(2026 年現在、非対応は選定対象外)
 2. **使う API のサブセットが動くか** — 一覧・PUT/GET・multipart・presigned まで確認すれば大半のワークロードは足りる。s3-tests を自分で回すのが確実
 3. **整合性モデル** — AWS の強整合を前提にしたコード(書いた直後に読む)が互換先でも成立するか
 4. **新しめの API(条件付き書き込み、チェックサム等)への依存を避ける** — 互換実装が追いつくまでのタイムラグが常にある
 
 ## まとめ
 
-- S3 に中立の標準仕様はない。AWS の API リファレンスが「仕様」で、互換勢がそれを追いかける片務的標準
-- 認証の本体は SigV4。エンドポイント差し替え + path-style + SigV4 が「S3 互換」利用の三点セット
+- S3 に中立の標準仕様はない。AWS の API リファレンスが「仕様」で、互換実装がそれを追いかける片務的標準
+- 認証の本体は SigV4。エンドポイント差し替え + path-style + SigV4 が「S3 互換」利用の 3 要素
 - 互換性はグラデーション。適合試験に相当するものは [ceph/s3-tests](https://github.com/ceph/s3-tests)(それ自体 unofficial)しかなく、実装ごとの対応 API 差は各公式ドキュメントで確認するしかない
-- 2025 年のチェックサム事件が示す通り、互換性は「維持し続ける営み」。SDK 更新は互換ストレージ利用者にとって破壊的変更になり得る
+- 2025 年のチェックサム問題が示す通り、互換性は「維持し続ける作業」。SDK 更新は互換ストレージ利用者にとって破壊的変更になり得る
 - ホスト名の「s3」はプロトコル名。`s3.isk01.sakurastorage.jp` は AWS と無関係のさくらのサービスであり、それでも aws CLI がそのまま使えるのがこの生態系の到達点
 
 ## 参考
