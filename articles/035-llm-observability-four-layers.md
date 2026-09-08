@@ -116,7 +116,9 @@ n8n は 2.19.0 から OpenTelemetry に対応していて、環境変数だけ�
 ![Jaeger で見た n8n の実行スパン。1 トレース 1 スパンで、タグは n8n.execution.id / n8n.execution.mode / n8n.workflow.name などの n8n 系のみ](/images/035-jaeger-n8n-span.jpg)
 *n8n 単体のトレース。Total Spans は 1 で、属性は `n8n.*` のみ。モデル名・トークン数・コストは含まれない(筆者環境で実測)*
 
-筆者環境では、公式の説明にあるノード単位のスパン(`node.execute`)を観測できませんでした。queue モードで main と worker の両方に環境変数を設定し(公式ドキュメントは「In queue mode, the OpenTelemetry variables must be set on all instances.」と明記しています)、worker から OTLP エンドポイントへ到達できることを確認したうえでも、届いたのは main が出す `workflow.execute` だけで、worker からのスパンはありませんでした。**原因は特定できていません(※未解決)。** 本記事ではこの環境で観測できた事実として記載します。
+ノード単位のスパン(`node.execute`)は、**main インスタンスが実行するワークフローでは観測できました**。ノード名・ノード種別・所要時間が個別のスパンになり、どのノードで時間を使ったかが分かります(筆者環境では 15 ノードのワークフローで 15 スパン)。
+
+一方、筆者の定期実行ワークフローは queue モードで worker が実行するため、ここでは実行スパンしか得られませんでした。公式ドキュメントは「In queue mode, the OpenTelemetry variables must be set on all instances.」「In queue mode, workers read the parent trace context from the database.」と説明しており、main と worker の両方に環境変数を設定し、worker から OTLP エンドポイントへ到達できることも確認しています。それでも `service.name` を `n8n-worker` にしたトレースは 1 件も届かず、worker が実行した分のノードスパンは観測できませんでした。**原因は特定できていません(※未解決)。** 定期実行のワークフローでノード単位の内訳を見たい場合は、この点を先に確認することをおすすめします。
 
 なお n8n 2.33.0 からは AI エージェント実行のスパンも追加されており、公式は「These spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*` attributes)」と説明しています。筆者のワークフローは AI Agent ノードではなく Basic LLM Chain を使っているため、この対象外でした。
 
@@ -147,7 +149,7 @@ $ curl -H "traceparent: 00-<32桁の trace id>-<16桁の span id>-01" -X POST ..
 # → Jaeger でそのトレース ID を引くと、Received Proxy Server Request が指定した span の CHILD_OF として入る
 ```
 
-一方、n8n から LiteLLM を呼んだ実行では、n8n のスパンと LiteLLM のスパンは別トレースになりました。n8n には送信時に `traceparent` を注入する設定(`N8N_OTEL_TRACES_INJECT_OUTBOUND`、既定 `true`)がありますが、筆者環境の queue モードでは繋がりませんでした。ノードスパンが観測できない件と同じ範囲の問題と考えられます(※未解決)。
+一方、n8n から LiteLLM を呼んだ実行では、n8n のスパンと LiteLLM のスパンは別トレースになりました。n8n には送信時に `traceparent` を注入する設定(`N8N_OTEL_TRACES_INJECT_OUTBOUND`、既定 `true`)がありますが、筆者環境では schedule トリガー・webhook トリガーのいずれでも繋がりませんでした。どちらも queue モードで worker が実行する経路で、worker からスパンが出ない件と同じ範囲と考えられます(※未解決)。
 
 ## 層④ ネットワークの flow — モデルが遅いのか経路が遅いのか
 
@@ -187,7 +189,7 @@ LiteLLM を挟むかどうかは、得られる `gen_ai.*` 属性と、中継が
 - LLM 呼び出しの情報は 4 層に分かれて存在し、層ごとに答えられる問いが違います。集計は CloudWatch メトリクス、1 件ごとの記録は Bedrock の呼び出しログ、処理内の内訳はスパン、通信の質は flow です
 - Bedrock の呼び出しログは既定で無効です。本文の配信を無効にすればメタデータとトークン数だけが残り、失敗した呼び出しの `errorCode` から原因を特定できます。実際にこれで、集計メトリクスでは分からなかった `ResourceNotFoundException` を見つけました
 - n8n 内蔵の OpenTelemetry は実行スパンを出しますが、属性は `n8n.*` 系のみで `gen_ai.*` は含まれません。LiteLLM を挟むと GenAI セマンティック規約に沿った属性(モデル・トークン・コスト)が 1 スパンに揃います
-- 筆者環境の queue モードでは、ノード単位のスパンと、アプリから中継層へのトレース伝播を観測できませんでした(※未解決)。トレースを 1 本に繋ぐ前提で設計する場合は、この点を先に確認することをおすすめします
+- ノード単位のスパンは main が実行するワークフローでは得られましたが、queue モードで worker が実行する分は観測できず、アプリから中継層へのトレース伝播も繋がりませんでした(※未解決)。トレースを 1 本に繋ぐ前提で設計する場合は、この点を先に確認することをおすすめします
 
 ## 参考
 
