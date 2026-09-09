@@ -28,11 +28,7 @@ VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で�
 
 ## 全体アーキテクチャ
 
-<!-- 高解像度の PNG 版 (drawio から export) を upload したらコメント解除:
-![アーキテクチャ全体図 (drawio export)](/images/008-tailscale-rotator.png)
--->
-
-下記は構造を mermaid で表現したもの。アイコン入りの高解像度版が必要なら、同じ構造を drawio で書き起こして `File > Export as > PNG` (Border 10px, Zoom 200%) すれば差し替え可能。
+Tailscale の webhook を起点に、EKS 上の Argo Events / Argo Workflows が別アカウントの Secrets Manager と Auto Scaling Group を操作するまでの全体像です。
 
 ```mermaid
 flowchart TB
