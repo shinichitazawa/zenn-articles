@@ -10,6 +10,19 @@
 | 注記 | `:::message` … `:::` | `{% details タイトル %}` … `{% enddetails %}` |
 | 図 | mermaid が描画される | **mermaid は描画されない**(エディタガイドに記載なし)。`text` のコードブロックか画像に置き換える |
 | 画像 | `/images/foo.png`(リポジトリ内) | 絶対 URL が必要。エディタでアップロードするか raw URL を使う |
+| 動画 | URL だけの行(前後に空行)で埋め込み | `{% embed <URL> %}` または `{% youtube <動画ID> %}` |
+
+## 動画
+
+**どちらも動画ファイルそのものは投稿できない。** 外部プラットフォームの埋め込みのみ。
+
+- dev.to: [エディタガイド](https://dev.to/p/editor_guide)が universal embed に対応するとして挙げるのは
+  **YouTube / Vimeo / Twitch / Loom / Mux**。書式は `{% embed https://www.youtube.com/watch?v=xxxx %}`。
+  [Forem の liquid tag 一覧](https://developers.forem.com/frontend/liquid-tags)には
+  `{% youtube dQw4w9WgXcQ %}` のような個別タグもある。liquid tag は `body_markdown` の一部なので
+  **API 投稿でもそのまま使える**。
+- Zenn: [Markdown 記法](https://zenn.dev/zenn/articles/markdown-guide)より、
+  **YouTube の URL だけの行**(前後に改行)で埋め込まれる。旧記法 `@[youtube](動画ID)` は現行ではない。
 
 `canonical_url` には Zenn の URL を入れる。転載であることを検索エンジンに示し、評価が分散するのを避けるため
 ([Forem API のフィールド定義](https://developers.forem.com/api/v1))。
