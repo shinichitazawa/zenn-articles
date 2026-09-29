@@ -375,7 +375,7 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 - Cilium Hubble との使い分け: Cilium 採用なら Hubble、CNI 変えたくないなら NetObserv
 - **実機検証**: WSL2 上の docker k3s で flow 取得成功、Raspberry Pi OS では BTF 不在で fatal。Pi で使うなら Ubuntu 24.04 LTS への OS 切替が必須
 
-## 参考リンク
+## 参考
 
 公式リソース:
 
