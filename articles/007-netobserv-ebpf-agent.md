@@ -8,9 +8,13 @@ published: false
 
 ## はじめに
 
-EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を扱ったが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent(以下 eBPF Agent)は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測コンポーネントである[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
+EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を扱いましたが、ネットワーク観測の選択肢は Cilium Hubble だけではありません。Red Hat 主導の NetObserv eBPF Agent(以下 eBPF Agent)は CNI(Container Network Interface)非依存 で kernel 5.8+ の Linux なら何でも動くフロー観測コンポーネントです[^netobserv-readme]。本記事はこのプロジェクトを公式 doc を辿りながら整理し、最後に手元の 2 環境 (WSL2 上の docker k3s と Raspberry Pi 5 上の k3s) で実際に動作検証した結果を記録します。
 
-本記事は 2026-05 時点の調査・検証に基づく。
+本記事は 2026-05 時点の調査・検証に基づきます。
+
+:::message
+本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。実測値・ログは筆者環境で 2026-05 に取得したもので、読者環境では結果が異なる場合があります。
+:::
 
 [^netobserv-readme]: https://github.com/netobserv/netobserv-ebpf-agent
 
@@ -59,7 +63,7 @@ flowchart TB
 4. **Loki** / Prometheus / 他 (Kafka / OTLP(OpenTelemetry Protocol) / IPFIX(IP Flow Information Export。フロー情報交換の IETF 標準形式)) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
 
-FLP は単体で柔軟性が高い。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
+FLP は単体で柔軟性が高くなっています。受け入れ可能な input は NetFlow v5/v9、IPFIX、eBPF Agent flow (protobuf+gRPC)、Kafka エントリ (JSON)、ファイル入力[^flp-readme]、対応する output は Prometheus, Loki, S3 互換オブジェクトストア, stdout[^flp-readme]。
 
 [^flp-readme]: https://github.com/netobserv/flowlogs-pipeline
 
@@ -115,7 +119,7 @@ helm install netobserv -n netobserv --create-namespace \
 
 出典: [Operator README](https://github.com/netobserv/netobserv-operator)
 
-その後 `FlowCollector` CR を作成すれば全コンポーネントが自動デプロイされます。同 README が明示しているとおり、`FlowCollector` は cluster-wide なので 「単一の `FlowCollector` のみ許可、名前は必ず `cluster`」 という制約がある[^operator-arch]。
+その後 `FlowCollector` CR を作成すれば全コンポーネントが自動デプロイされます。同 README が明示しているとおり、`FlowCollector` は cluster-wide なので 「単一の `FlowCollector` のみ許可、名前は必ず `cluster`」 という制約があります[^operator-arch]。
 
 ### (b) standalone モード
 
@@ -152,7 +156,7 @@ sudo -E bin/netobserv-ebpf-agent
 }
 ```
 
-「`tcpdump` 的に試す」用途に向く。本記事の検証もこのモードで行う。
+「`tcpdump` 的に試す」用途に向きます。本記事の検証もこのモードで行う。
 
 ## EKS で動かすときの注意点
 
@@ -160,7 +164,7 @@ README の Deployment test 節に次の記述がある[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF.
 
-つまり Amazon EKS の AMI は eBPF が無効化されて出荷される。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要。
+つまり Amazon EKS の AMI は eBPF が無効化されて出荷されます。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要。
 
 | ノード OS | eBPF の出荷状態 | NetObserv を動かすには |
 |---|---|---|
@@ -172,11 +176,11 @@ README が示している選択肢:
 1. 自前 AMI を作って eBPF を有効化する
 2. **Bottlerocket** を使う (追加設定なしで動作確認済み)
 
-README のテスト結果表でも `Amazon EKS (Bottlerocket AMI) 1.22.6` で capability 方式 / privileged 方式の両方 ✅ になっている[^netobserv-readme]。
+README のテスト結果表でも `Amazon EKS (Bottlerocket AMI) 1.22.6` で capability 方式 / privileged 方式の両方 ✅ になっています[^netobserv-readme]。
 
 ## Loki 依存からの脱却 (v1.4 以降)
 
-公式ブログによれば、NetObserv v1.4 から Loki は 必須ではなくなった[^no-loki-blog]。原文:
+公式ブログによれば、NetObserv v1.4 から Loki は 必須ではなくなりました[^no-loki-blog]。原文:
 
 > we 'just' added an enable knob for Loki
 
@@ -186,7 +190,7 @@ Loki を disable にすると:
 - Console plugin は Loki に完全依存しているので無効化される
 - **Prometheus メトリクスの生成は継続**、Kafka / IPFIX exporter も使える[^no-loki-blog]
 
-ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go consumer (Kafka メッセージを deserialize して INSERT) を紹介している[^no-loki-blog]。
+ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go consumer (Kafka メッセージを deserialize して INSERT) を紹介しています[^no-loki-blog]。
 
 [^no-loki-blog]: https://netobserv.io/posts/deploying-network-observability-without-loki-an-example-with-clickhouse/ (Joël Takvorian, 2023-10-02)
 
@@ -348,7 +352,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 
 ## EKS Hybrid Nodes との関係
 
-シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能。詳細は別記事 `002-hybrid-vs-outposts-vs-anywhere`)に戻して、NetObserv がこの検証でどこに収まるかを考える。
+シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能。詳細は別記事 `002-hybrid-vs-outposts-vs-anywhere`)に戻して、NetObserv がこの検証でどこに収まるかを考えます。
 
 | 状況 | 観測手段 |
 |---|---|
@@ -364,7 +368,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
 4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動きません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 
-Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で足りる。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢になる。
+Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble で足ります。NetObserv は「OpenShift / AWS マネージドノード混在 / VPC CNI を残したい」要件が出てきた時の選択肢になります。
 
 ## まとめ
 

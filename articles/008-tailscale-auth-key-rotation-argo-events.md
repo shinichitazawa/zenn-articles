@@ -541,7 +541,7 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ### EventBus がなぜ必要か
 
-Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できる。
+Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できます。
 
 EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
 
@@ -616,7 +616,7 @@ JetStream の Stream は 3 種類の retention policy を持つ ([公式](https:
 
 Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ありません。
 
-storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で年単位で保持できる。
+storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で年単位で保持できます。
 
 ### Consumer の Ack semantics
 

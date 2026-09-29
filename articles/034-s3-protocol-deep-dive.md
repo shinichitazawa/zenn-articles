@@ -34,7 +34,7 @@ published: false
 
 ### 2.1 基本形: リソース指向 REST
 
-```
+```text
 PUT    /{bucket}/{key}     オブジェクト作成
 GET    /{bucket}/{key}     取得(Range 対応)
 DELETE /{bucket}/{key}     削除
@@ -52,7 +52,7 @@ XML レスポンス(JSON ではなく、2006 年の設計のまま)と、`x-amz-
 
 ### 2.3 アドレッシング: virtual-hosted vs path-style
 
-```
+```text
 virtual-hosted: https://{bucket}.s3.isk01.sakurastorage.jp/key
 path-style:     https://s3.isk01.sakurastorage.jp/{bucket}/key
 ```
