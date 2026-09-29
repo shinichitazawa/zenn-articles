@@ -58,7 +58,7 @@ flowchart TB
 データフロー:
 
 1. **eBPF Agent** が各ノードの ingress / egress フローをカーネルから収集
-2. (任意) Kafka を ingestion 層として挟む。大規模クラスタで推奨
+2. (任意) Kafka を ingestion 層として挟みます。大規模クラスタで推奨されます
 3. **flowlogs-pipeline (FLP)** がフローをエンリッチ、メトリクスを生成、複数バックエンドへ出力
 4. **Loki** / Prometheus / 他 (Kafka / OTLP(OpenTelemetry Protocol) / IPFIX(IP Flow Information Export。フロー情報交換の IETF 標準形式)) に保存
 5. **Console plugin** が Loki / Prometheus を参照して可視化
@@ -69,7 +69,7 @@ FLP は単体で柔軟性が高くなっています。受け入れ可能な inp
 
 ## 動作要件
 
-`netobserv-ebpf-agent` の動作要件は README に明示されている[^netobserv-readme]:
+`netobserv-ebpf-agent` の動作要件は README に明示されています[^netobserv-readme]:
 
 - **Linux kernel 5.8+ with eBPF enabled**
 - 最小権限モード: capability `BPF` + `PERFMON` + `NET_ADMIN`
@@ -95,7 +95,7 @@ BPF / PERFMON capability を認識しない古い Kubernetes ディストリビ�
 
 ## デプロイモード
 
-3 つのモードが README に列挙されている[^netobserv-readme]:
+3 つのモードが README に列挙されています[^netobserv-readme]:
 
 ### (a) Operator 経由 (推奨)
 
@@ -135,7 +135,7 @@ flow を gRPC で外部の collector (FLP など) に送る形。
 
 ### (c) direct-flp モード
 
-最もシンプル。FLP のロジックを agent 内に embed して stdout に直接出力する[^netobserv-readme]:
+最もシンプル。FLP のロジックを agent 内に embed して stdout に直接出力します[^netobserv-readme]:
 
 ```bash
 export FLP_CONFIG=$(cat flp-config.json)
@@ -156,11 +156,11 @@ sudo -E bin/netobserv-ebpf-agent
 }
 ```
 
-「`tcpdump` 的に試す」用途に向きます。本記事の検証もこのモードで行う。
+「`tcpdump` 的に試す」用途に向きます。本記事の検証もこのモードで行います。
 
 ## EKS で動かすときの注意点
 
-README の Deployment test 節に次の記述がある[^netobserv-readme]:
+README の Deployment test 節に次の記述があります[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF.
 
@@ -173,8 +173,8 @@ README の Deployment test 節に次の記述がある[^netobserv-readme]:
 
 README が示している選択肢:
 
-1. 自前 AMI を作って eBPF を有効化する
-2. **Bottlerocket** を使う (追加設定なしで動作確認済み)
+1. 自前 AMI を作って eBPF を有効化します
+2. **Bottlerocket** を使います (追加設定なしで動作確認済み)
 
 README のテスト結果表でも `Amazon EKS (Bottlerocket AMI) 1.22.6` で capability 方式 / privileged 方式の両方 ✅ になっています[^netobserv-readme]。
 
@@ -186,9 +186,9 @@ README のテスト結果表でも `Amazon EKS (Bottlerocket AMI) 1.22.6` で ca
 
 Loki を disable にすると:
 
-- `flowlogs-pipeline` が Loki への送信を試みなくなる
-- Console plugin は Loki に完全依存しているので無効化される
-- **Prometheus メトリクスの生成は継続**、Kafka / IPFIX exporter も使える[^no-loki-blog]
+- `flowlogs-pipeline` が Loki への送信を試みなくなります
+- Console plugin は Loki に完全依存しているので無効化されます
+- **Prometheus メトリクスの生成は継続**され、Kafka / IPFIX exporter も使えます[^no-loki-blog]
 
 ClickHouse に流す例として、同ブログは Kafka exporter + 自前 Go consumer (Kafka メッセージを deserialize して INSERT) を紹介しています[^no-loki-blog]。
 
@@ -225,10 +225,10 @@ flowchart TB
 
 ### 選択基準
 
-- 既に Cilium 採用 or 採用予定 → Hubble で十分。NetObserv を別途入れる理由は薄い
-- **CNI を変えず観測だけ追加したい** (例: VPC CNI on EKS の通常ノードグループ) → NetObserv が有力
-- **L7 プロトコル分析が重要** (HTTP レイテンシ、gRPC 観測) → Hubble の方が強い
-- **OpenShift 環境** → NetObserv が第一候補 (Red Hat 公式バックエンド)
+- 既に Cilium 採用 or 採用予定 → Hubble で十分です。NetObserv を別途入れる理由は薄いといえます
+- **CNI を変えず観測だけ追加したい** (例: VPC CNI on EKS の通常ノードグループ) → NetObserv が有力です
+- **L7 プロトコル分析が重要** (HTTP レイテンシ、gRPC 観測) → Hubble の方が強いです
+- **OpenShift 環境** → NetObserv が第一候補です (Red Hat 公式バックエンド)
 
 ## 実機検証
 
@@ -364,7 +364,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 整理すると:
 
 1. **Hybrid Nodes に Cilium を入れる前提** なら、Hubble で観測完結。NetObserv は不要
-2. **AWS 側 EKS のマネージドノードグループ (VPC CNI 利用) を mix する** 場合、そちらだけ NetObserv を入れて観測する手がある
+2. **AWS 側 EKS のマネージドノードグループ (VPC CNI 利用) を mix する** 場合、そちらだけ NetObserv を入れて観測する手があります
 3. **Bottlerocket でしか eBPF 有効化が保証されない** ことを考慮し、自前 AMI を作る予算がなければ NetObserv 投入ノードを Bottlerocket に限定[^netobserv-readme]
 4. **Pi 上で動かしたい場合**、上記検証通り Raspberry Pi OS では BTF 不在で動きません。Ubuntu 24.04 LTS arm64 への切り替えが前提
 

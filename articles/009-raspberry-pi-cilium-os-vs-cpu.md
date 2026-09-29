@@ -187,11 +187,11 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 | kube-proxy のバージョン固定 | ビルド条件が変わる前のタグを使う | 対象イメージでの確認が必要 |
 | baseline 向けに自前再ビルド | `-march=armv8-a` 相当でビルドし直す | 運用コストが上がる |
 
-1. **Cilium の kube-proxy replacement を使い、upstream の `kube-proxy` を動かさない**
+1. **Cilium の kube-proxy replacement を使い、upstream の `kube-proxy` を動かしません**
    そもそも `kube-proxy` DaemonSet を起動しなければ、そのイメージ起因の Armv8.2-A 要求は発生しません。Cilium 自身のイメージは baseline arm64（Armv8-A）向けに配布されており、Pi 4 でも動きます。kube-proxy free 化は[Cilium 公式の kube-proxy replacement](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/)に従います。
-2. **kube-proxy を使うなら、Armv8.2-A 要求が入る前のバージョンに固定する**
+2. **kube-proxy を使うなら、Armv8.2-A 要求が入る前のバージョンに固定します**
    イメージのビルド条件が変わる前のタグを使えば回避できる場合があります（要・対象イメージでの確認）。
-3. **baseline 向けに自前で再ビルドしたイメージを使う**
+3. **baseline 向けに自前で再ビルドしたイメージを使います**
    `-march=armv8-a` 相当でビルドし直せば A53 / A72 でも動きます。運用コストは上がります。
 
 つまり「OS 更新」ではなく「動かすバイナリ側の選択」が Pi 3 / Pi 4 での回避の方針になります。

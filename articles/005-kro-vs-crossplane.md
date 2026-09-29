@@ -42,7 +42,7 @@ flowchart TB
 
 ### 仕組み
 
-`ResourceGraphDefinition` (RGD) という CRD(Custom Resource Definition。Kubernetes API に独自リソース型を追加する仕組み)で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成する:
+`ResourceGraphDefinition` (RGD) という CRD(Custom Resource Definition。Kubernetes API に独自リソース型を追加する仕組み)で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成します:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -72,7 +72,7 @@ spec:
         # ...
 ```
 
-これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースを deploy できる:
+これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースを deploy できます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -166,12 +166,12 @@ spec:
 
 Kro を選ぶ理由になりやすい点:
 
-1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなる
+1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane のマルチクラウド対応は過剰になります
-3. **学習コスト**: Composition の設計は時間がかかる。RGD は Kubernetes YAML の延長で書ける
+3. **学習コスト**: Composition の設計には時間がかかります。RGD は Kubernetes YAML の延長で書けます
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
 
-逆に以下の場合は Crossplane が向く:
+逆に次の場合は Crossplane が向きます:
 
 - 複数クラウド (AWS + GCP) を統合管理
 - 既に Crossplane に投資している
@@ -218,7 +218,7 @@ spec:
             eks.amazonaws.com/role-arn: ${role.status.ackResourceMetadata.arn}
 ```
 
-これを 1 つ書いておけば、各 Pod の IAM 構成は以下で済む:
+これを 1 つ書いておけば、各 Pod の IAM 構成は次で済みます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -250,11 +250,11 @@ flowchart TB
 
 ## まとめ
 
-- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に向く
+- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に向きます
 - **Crossplane**: マルチクラウド、大規模、エコシステム成熟
 - **AWS 中心 + EKS Hybrid Nodes** の構成では Kro が有力
 
-両者は競合だが共存も可能。Kro が alpha のうちは破壊的変更に注意して使う。
+両者は競合しますが、共存もできます。Kro が alpha のうちは破壊的変更に注意して使います。
 
 ## 次回予告
 

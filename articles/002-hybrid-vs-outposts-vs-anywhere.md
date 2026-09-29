@@ -20,9 +20,9 @@ https://youtu.be/AZaIFMKKwbE
 
 ## 一行サマリ
 
-- **EKS Hybrid Nodes**: 顧客所有のハードウェアを、AWS がホストする EKS クラスタのノードとして参加させる
-- **EKS on Outposts**: AWS 所有のラックを顧客拠点に設置し、その上で EKS を動かす
-- **EKS Anywhere**: EKS と同じ Kubernetes ディストリビューション(EKS Distro)を顧客環境で自己運用する
+- **EKS Hybrid Nodes**: 顧客所有のハードウェアを、AWS がホストする EKS クラスタのノードとして参加させます
+- **EKS on Outposts**: AWS 所有のラックを顧客拠点に設置し、その上で EKS を動かします
+- **EKS Anywhere**: EKS と同じ Kubernetes ディストリビューション(EKS Distro)を顧客環境で自己運用します
 
 ## 比較表
 

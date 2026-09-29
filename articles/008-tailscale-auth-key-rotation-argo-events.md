@@ -153,7 +153,7 @@ EventSource と Sensor は直接つながっているわけではなく、間に
 
 ## 実装: Sensor の filter とトリガ
 
-Argo Events の data filter は GJSON(Go 向けの JSON パスクエリ記法)の syntax で、配列要素は `body.#.field` で展開できる[^4]。
+Argo Events の data filter は GJSON(Go 向けの JSON パスクエリ記法)の syntax で、配列要素は `body.#.field` で展開できます[^4]。
 
 [^4]: [Argo Events: Data filter](https://argoproj.github.io/argo-events/sensors/filters/data/) — 複数 path をカンマで連結する例として `body.action,body.labels.#(name=="Webhook").name,body.labels.#(name=="Approved").name` の形が示されている（2026-09 取得）
 
@@ -213,15 +213,15 @@ spec:
 
 ポイント:
 
-- `dataLogicalOperator: and` で event type と deviceName の両方を満たす場合のみ発火。default が `and` なので明示しなくても良いが、意図を明文化する意味で書いている[^4]
-- target は `argo` namespace の WorkflowTemplate。cross-namespace submit になるため、Sensor ServiceAccount が `argo` ns に対して `workflowtemplates:get` + `workflows:create` の RBAC(Role-Based Access Control)を持つ必要がある (後述)
-- `body.0.data.deviceName` で配列先頭要素を triggered-by parameter に注入し、Workflow ログから「どの device 由来か」を追える
+- `dataLogicalOperator: and` で event type と deviceName の両方を満たす場合のみ発火。default が `and` なので明示しなくても良いが、意図を明文化する意味で書いています[^4]
+- target は `argo` namespace の WorkflowTemplate。cross-namespace submit になるため、Sensor ServiceAccount が `argo` ns に対して `workflowtemplates:get` + `workflows:create` の RBAC(Role-Based Access Control)を持つ必要があります (後述)
+- `body.0.data.deviceName` で配列先頭要素を triggered-by parameter に注入し、Workflow ログから「どの device 由来か」を追えます
 
 ## cross-namespace RBAC の注意点
 
-Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと機能しない。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消える。
+Sensor (`argo-events` ns) → WorkflowTemplate (`argo` ns) の submit を成立させる cross-namespace RBAC を、`argo-events` overlay の kustomization 配下に置くと機能しません。kustomization に `namespace: argo-events` を設定していると、Role の `namespace: argo` 指定が上書きされて `argo-events` に着地するため、cross-namespace 効果が消えます。
 
-対策は次のとおり: RBAC を `argo` namespace 側の overlay に置く。
+対策は次のとおりです。RBAC を `argo` namespace 側の overlay に置きます。
 
 ```yaml:sensor-tailscale-rotation-submit-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -451,7 +451,7 @@ session.client("autoscaling").start_instance_refresh(
 )
 ```
 
-複数台の冗長 ASG では通常 `MinHealthyPercentage=90` 等を使う。bastion のように「短時間の disconnection を許容できる single-node」だけが 0 で OK。
+複数台の冗長 ASG では通常 `MinHealthyPercentage=90` 等を使います。bastion のように「短時間の disconnection を許容できる single-node」だけが 0 で OK。
 
 [^5]: [Amazon EC2 Auto Scaling: Start an instance refresh](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) — `MinHealthyPercentage` / `InstanceWarmup` は Preferences の JSON フィールド
 
@@ -483,7 +483,7 @@ spec:
         property: client_secret
 ```
 
-これで Workflow Pod 自体は `secretsmanager:GetSecretValue` を直接持たません。ESO の IRSA がその責務を一手に引き受ける構造になる[^2]。
+これで Workflow Pod 自体は `secretsmanager:GetSecretValue` を直接持たません。ESO の IRSA がその責務を一手に引き受ける構造になります[^2]。
 
 ## 実装で詰まった問題
 
@@ -543,14 +543,14 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できます。
 
-EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選ぶ。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
+EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選びます。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
 
 ### Core NATS と JetStream の違い
 
 NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstream)の 2 層があります。
 
 - **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消える (fire-and-forget)
-- **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれる。Consumer が落ちて再起動しても、未 ack のメッセージを再配送する
+- **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれます。Consumer が落ちて再起動しても、未 ack のメッセージを再配送します
 
 webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補になりません。
 
@@ -558,7 +558,7 @@ webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) �
 
 「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem です[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
 
-公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近い。
+公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近いです。
 
 | 機能 | 実装元 |
 |---|---|
@@ -571,7 +571,7 @@ webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) �
 | Stream / Consumer の state machine | JetStream 独自 |
 | API endpoint group (`$JS.API.*`) | JetStream 独自 |
 
-client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけ。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開される[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
+client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけ。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開されます[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
 
 [^js1]: ソースは [github.com/nats-io/nats-server](https://github.com/nats-io/nats-server) の `server/jetstream*.go`。リポジトリは Go 99.7%、Apache 2.0、CNCF Incubating project。
 [^js2]: JetStream API subject の完全な一覧は [JetStream API reference](https://docs.nats.io/reference/jetstream/api/) を参照。
@@ -600,7 +600,7 @@ spec:
 
 - `default` という名前の Stream を作成
 - subject のパターンは `default.<eventsourcename>.<eventname>` (公式 doc に明記)
-- Sensor は Durable Consumer として subscribe する
+- Sensor は Durable Consumer として subscribe
 
 「subject が階層構造で event source 名と event 名にマップされている」ことが Sensor の filter dependency と一対一対応する設計になっています。
 
@@ -622,7 +622,7 @@ storage は `File` がデフォルト (PVC 上にコミット)。bastion auth ke
 
 JetStream Consumer の挙動は[公式 doc](https://docs.nats.io/learn/jetstream/pull-consumers) によると:
 
-- **AckPolicy: AckExplicit (デフォルト)** — メッセージごとに ack を返す必要がある
+- **AckPolicy: AckExplicit (デフォルト)** — メッセージごとに ack を返す必要
 - **AckWait** — ack を待つタイムアウト、超過したら再配送
 - **MaxDeliver** — 再配送試行回数の上限 (デフォルト -1 = 無限)
 
@@ -633,8 +633,8 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 公式の delivery semantics は [base が at-least-once、exactly-once は unique message ID + double ack で実現可能](https://docs.nats.io/concepts/jetstream)と明示しています。Argo Events 標準の Sensor は exactly-once を使っていないため、同一 webhook payload を起点に Workflow が 2 回 submit される可能性があります。auth key の場合、
 
 - 2 回 rotation が走っても結果は等価 (新 key を発行 → Secrets Manager 書き換え → instance refresh)
-- ただし instance refresh は in-flight を 1 つしか許容しない (API が `InstanceRefreshInProgress` で 400 を返す)
-- Workflow 側で `start_instance_refresh` 直後に既存 refresh が無いか check するか、`ttlStrategy` + retry policy で対処する
+- ただし instance refresh は in-flight を 1 つしか許容しません (API が `InstanceRefreshInProgress` で 400 を返します)
+- Workflow 側で `start_instance_refresh` 直後に既存 refresh が無いか check するか、`ttlStrategy` + retry policy で対処します
 
 実装では「2 回目の Workflow が走った時に instance refresh が in-progress なら成功扱いで抜ける」分岐を入れている (rotate.py の例外 handling)。
 
@@ -652,17 +652,17 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 ### 何が嬉しいか — 1 行で
 
 :::message
-EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に永続化する**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせる。
+EventBus = JetStream native を採用することで、**「webhook を受けた事実」を broker に永続化します**。それ以降の Sensor 落ち、再起動、Workflow controller 落ちが起きても、ack 前の event は失われません。「期限切れの 1 日前に確実に 1 回 rotation を回す」要件が、自前で retry 機構を書かずに満たせます。
 :::
 
 ## まとめ
 
-- Tailscale auth key の手動更新を「webhook 検知 → cross-account でシークレット更新 → ASG instance refresh」で 0 操作化できる
+- Tailscale auth key の手動更新を「webhook 検知 → cross-account でシークレット更新 → ASG instance refresh」で 0 操作化できます
 - Argo Events の data filter は GJSON syntax で配列展開 (`body.#.type`) ができるため、Tailscale の配列 payload に直接対応可能
-- Sensor → 他 namespace Workflow の cross-namespace submit は overlay の namespace 上書きに注意。RBAC は target ns 側に置く
-- IRSA は Kro RGD + ACK iam-controller の組み合わせで「k8s YAML だけで IAM Role 作成」が成立します。pattern-based 命名 (`-irsa` suffix) を運用に含める
-- bastion のような single-instance ASG では `MinHealthyPercentage: 0` を Preferences に明示する必要がある
-- 同じパターンは「期限切れを webhook で通知してくれる任意の SaaS」全般に応用できる (証明書、API key、OAuth refresh token 等)
+- Sensor → 他 namespace Workflow の cross-namespace submit は overlay の namespace 上書きに注意。RBAC は target ns 側に置きます
+- IRSA は Kro RGD + ACK iam-controller の組み合わせで「k8s YAML だけで IAM Role 作成」が成立します。pattern-based 命名 (`-irsa` suffix) を運用に含めます
+- bastion のような single-instance ASG では `MinHealthyPercentage: 0` を Preferences に明示する必要があります
+- 同じパターンは「期限切れを webhook で通知してくれる任意の SaaS」全般に応用できます (証明書、API key、OAuth refresh token 等)
 
 ## 参考
 

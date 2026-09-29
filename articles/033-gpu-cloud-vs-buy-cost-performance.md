@@ -80,7 +80,7 @@ ERROR: Quota 'GPUS_ALL_REGIONS' exceeded.  Limit: 0.0 globally.
 | H100 | H100 80GB / RAM 192GB / 10vCPU | 0.28 円/秒(1,008 円/時) |
 
 - クォータ申請不要。既存のさくらアカウントで使える(初回のみ利用規約への同意が必要 — API からの投入も同意前は `403 Agreement to terms of service is required` で拒否されます。実測)
-- Docker Hub の公開イメージを直接指定可能。成果物は `/opt/artifact` に置くと回収できる
+- Docker Hub の公開イメージを直接指定可能。成果物は `/opt/artifact` に置くと回収できます
 - API はさくらのクラウドの API キーで Basic 認証。ただし**キーに DOK の操作権限が必要**(最小権限キーだと 403。実測)
 
 V100 32GB + RAM 40GB は上の要件を満たします。
@@ -88,7 +88,7 @@ V100 32GB + RAM 40GB は上の要件を満たします。
 **実走結果(2026-08-29)**: DOK の V100 プランで H3 の T2V を 1 本生成できました。
 
 - タスク実行 790 秒(13.2 分)= 重み 44.5GB のダウンロード約 8 分 + モデル初期化 3.2 分 + サンプリング 4.4 秒/step × 4 steps(turbo LoRA)
-- 出力: 608×352 / 1.6 秒 / h264 + **ステレオ AAC**(H3 は映像と音声を単一パスで同時生成する。[公式 model card](https://huggingface.co/MiniMaxAI/MiniMax-H3) が「The H3-Omni-Transformer jointly predicts video and audio latents, which are then decoded into video and stereo audio, respectively.」と説明しています(2026-09 取得))
+- 出力: 608×352 / 1.6 秒 / h264 + **ステレオ AAC**(H3 は映像と音声を単一パスで同時生成します。[公式 model card](https://huggingface.co/MiniMaxAI/MiniMax-H3) が「The H3-Omni-Transformer jointly predicts video and audio latents, which are then decoded into video and stereo audio, respectively.」と説明しています(2026-09 取得))
 - **実費: 約 12.6 円**
 - 懸念だった Volta 世代の制約は、ComfyUI(comfy_kitchen)側が吸収: ログに
   `Native ops: convrot_w4a4, int8_tensorwise, ... emulated ops: nvfp4, float8_*` とあり、
@@ -161,7 +161,7 @@ H3 の重みは [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/
 ## まとめ
 
 - 重み 44.5GB 級のモデルは「VRAM + RAM + ディスク」の 3 段で考える。無料 Colab で失敗した主因は VRAM ではなく RAM 12GB(実測)
-- GCP のグローバル GPU クォータは **Spot にも適用される**(実測)。「今日動かしたい」に GCP/AWS は向かない
+- GCP のグローバル GPU クォータは **Spot にも適用される**(実測)。「今日動かしたい」に GCP/AWS は向きません
 - さくら高火力 DOK は「クォータなし・57.6 円/時・秒課金」で検証用途の実用最安。ただし V100=Volta の世代制約(bf16 なし・CUDA 12 固定)に注意
 - 購入の損益分岐は中古 3090 でも約 3,200 時間。毎日回す実績がつくまでは借りる
 

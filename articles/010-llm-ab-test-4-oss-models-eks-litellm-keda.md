@@ -418,9 +418,9 @@ kubectl run -it --rm temporal-cli --image=temporalio/cli:latest --restart=Never 
 
 外部 webhook が不要なら Temporal CLI 直接で済みますが、以下の理由で Argo Events 経由を採用します。
 
-- 既存パターン (PR-feedback / Tailscale rotation 等) と構造を統一できる
-- 将来の webhook 拡張 (Slack slash command / GitHub Actions / 外部 SaaS) が EventSource 追加だけで済む
-- Sensor の filter / retry / payload 整形 / event 履歴が無料で手に入る
+- 既存パターン (PR-feedback / Tailscale rotation 等) と構造を統一できます
+- 将来の webhook 拡張 (Slack slash command / GitHub Actions / 外部 SaaS) が EventSource 追加だけで済みます
+- Sensor の filter / retry / payload 整形 / event 履歴が無料で手に入ります
 - 観測性: いつ誰が trigger したかが Argo Events で一元的に追える
 
 排他ではなく、デバッグ時は Temporal CLI 直接も併用可能です。

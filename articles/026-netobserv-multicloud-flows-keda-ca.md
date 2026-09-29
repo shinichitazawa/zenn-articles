@@ -386,9 +386,9 @@ netobserv_node_flows_total{SrcAddr="10.0.0.102", ...}  ← 新 client。別系�
 
 起きたことを順に並べるとこうです（筆者環境で実測・2026-08）。
 
-1. 起動に失敗して詰まったインスタンスを、`az vmss delete-instances` で **Cluster Autoscaler の外から**削除した
-2. ちょうど走っていた Cluster Autoscaler 自身のリサイズ要求と競合し、その操作が「失敗」として記録された
-3. ノードグループが**scale-up backoff** 状態になり、以後しばらく増設要求そのものを止めた
+1. 起動に失敗して詰まったインスタンスを、`az vmss delete-instances` で **Cluster Autoscaler の外から**削除しました
+2. ちょうど走っていた Cluster Autoscaler 自身のリサイズ要求と競合し、その操作が「失敗」として記録されました
+3. ノードグループが**scale-up backoff** 状態になり、以後しばらく増設要求そのものを止めました
 
 このとき Kubernetes のイベントには何も出ず、手掛かりは Cluster Autoscaler のログの `Node group azure-cil-vmss is not ready for scaleup - backoff` の一行だけでした。Cluster Autoscaler が管理するリソースは外から操作しない方が安全です。操作してしまった場合、backoff の解消には時間経過を待つか Cluster Autoscaler を再起動します。
 
