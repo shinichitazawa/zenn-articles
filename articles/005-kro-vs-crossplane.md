@@ -262,6 +262,8 @@ flowchart TB
 
 ## 参考
 
+- 検証時の構成ファイル: [kro（`rgd-simple-webapp.yaml` を含む RGD 一式）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/kro)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`25777ef`](https://github.com/shinichitazawa/k8s-deploy-public/commit/25777ef) 時点。環境固有値はダミーに置換済み）
+
 - [Kro 公式](https://kro.run/)
 - [Kro GitHub](https://github.com/kubernetes-sigs/kro)
 - [Crossplane docs](https://docs.crossplane.io/)

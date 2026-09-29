@@ -381,6 +381,8 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 
 ## 参考
 
+- 検証時の構成ファイル: [netobserv（agent の DaemonSet と FLP の ConfigMap）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/netobserv)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`25777ef`](https://github.com/shinichitazawa/k8s-deploy-public/commit/25777ef) 時点。環境固有値はダミーに置換済み）
+
 公式リソース:
 
 - [netobserv-ebpf-agent README](https://github.com/netobserv/netobserv-ebpf-agent)

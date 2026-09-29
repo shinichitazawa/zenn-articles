@@ -1,5 +1,5 @@
 ---
-title: "ライセンス遵守をポリシーに書く — 生成 AI パイプラインのガードレールを Dogwood で実装する"
+title: "生成 AI のライセンス遵守を Dogwood のポリシーで強制する"
 emoji: "🛂"
 type: "tech"
 topics: ["dogwood", "cedar", "ai", "policy", "governance"]

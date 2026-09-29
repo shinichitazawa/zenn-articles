@@ -504,6 +504,8 @@ LiteLLM proxy / Langfuse / S3 model cache の固定費を入れても PoC で月
 
 ## 参考
 
+- 検証時の構成ファイル: [llm-ab-test（4 モデルの Deployment と KEDA ScaledObject）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/llm-ab-test) / [litellm](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/litellm) / [keda](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/keda)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`25777ef`](https://github.com/shinichitazawa/k8s-deploy-public/commit/25777ef) 時点。環境固有値はダミーに置換済み）
+
 - LiteLLM 公式 (proxy / router / configs): https://docs.litellm.ai/
 - LiteLLM OpenTelemetry integration: https://docs.litellm.ai/docs/observability/opentelemetry_integration
 - LiteLLM Langfuse integration: https://docs.litellm.ai/docs/observability/langfuse_integration
