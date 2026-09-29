@@ -190,6 +190,8 @@ flowchart TB
 
 ## 参考
 
+- 検証時の構成ファイル: [n8n（本記事が扱う `ciliumnetworkpolicy.yaml` を含む）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n) / [cilium](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/cilium)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`c6011bd`](https://github.com/shinichitazawa/k8s-deploy-public/commit/c6011bd) 時点。環境固有値はダミーに置換済み）
+
 - [Network Policy — Cilium Docs](https://docs.cilium.io/en/stable/security/policy/intro/)
 - [Tailscale Funnel](https://tailscale.com/kb/1223/funnel)
 - [Validating webhook deliveries — GitHub Docs](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries)

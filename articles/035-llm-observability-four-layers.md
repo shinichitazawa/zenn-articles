@@ -193,6 +193,8 @@ LiteLLM を挟むかどうかは、得られる `gen_ai.*` 属性と、中継が
 
 ## 参考
 
+- 検証時の構成ファイル: [litellm](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/litellm) / [n8n](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/n8n)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`c6011bd`](https://github.com/shinichitazawa/k8s-deploy-public/commit/c6011bd) 時点。環境固有値はダミーに置換済み。**Jaeger と Grafana の構成は公開リポジトリに含めていません**）
+
 - [Amazon Bedrock: Monitor model invocation using CloudWatch Logs and Amazon S3](https://docs.aws.amazon.com/bedrock/latest/userguide/model-invocation-logging.html) / [CloudWatch metrics for Amazon Bedrock](https://docs.aws.amazon.com/bedrock/latest/userguide/monitoring-cw.html)
 - [OpenTelemetry: Semantic conventions for generative AI](https://opentelemetry.io/docs/specs/semconv/gen-ai/) / [semantic-conventions-genai リポジトリ](https://github.com/open-telemetry/semantic-conventions-genai)
 - [n8n: OpenTelemetry の環境変数](https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/opentelemetry/) / [Trace executions with OpenTelemetry](https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/trace-executions-with-opentelemetry/)

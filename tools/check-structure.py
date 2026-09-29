@@ -17,19 +17,15 @@ import pathlib, re, sys
 # 公開リポに検証コードが無い記事。理由を必ず書く。
 NO_CODE = {
     "002-hybrid-vs-outposts-vs-anywhere.md": "公式ドキュメントの比較のみで検証コードが無い",
-    "008-tailscale-auth-key-rotation-argo-events.md": "argo-events の構成が公開リポに無い",
     "023-n8n-ai-agent-bedrock-vertex-azure.md": "本文中にリンクあり",
     "024-japanese-receipt-ocr-claude-nova-textract.md": "n8n のワークフローが公開リポに無い",
     "030-dogwood-temporal-policy-vs-n8n-guard.md": "dogwood は別リポ / n8n のワークフローが公開リポに無い",
-    "031-cluster-autoscaler-sakuracloud-provider.md": "さくら provider が公開リポに無い(overlay は rasp のみ)",
     "032-n8n-jira-bidirectional-no-inbound.md": "n8n のワークフローが公開リポに無い",
     "033-constrain-the-boundary-not-the-agent.md": "設計論で検証コードが無い",
     "033-gpu-cloud-vs-buy-cost-performance.md": "コストの実測のみで検証コードが無い",
     "034-s3-protocol-deep-dive.md": "プロトコルの調査で検証コードが無い",
-    "035-llm-observability-four-layers.md": "計測に使った構成が公開リポに無い",
     "036-license-as-policy-dogwood-guardrails.md": "dogwood は別リポ",
     "037-zero-cost-explainer-video-pipeline.md": "別リポ",
-    "029-n8n-k8s-network-requirements-cilium.md": "記事が扱う CiliumNetworkPolicy が公開リポの n8n に無い",
 }
 
 ng = 0

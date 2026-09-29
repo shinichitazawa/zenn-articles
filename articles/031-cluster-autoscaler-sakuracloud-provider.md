@@ -149,6 +149,8 @@ CA が 0→1 判断  → ディスク作成 → available 待ち → サーバ�
 
 ## 参考
 
+- 検証時の構成ファイル: [さくらのクラウド向け Cluster Autoscaler provider（`Dockerfile` / `registration.patch` / `sakuracloud/`）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/netobserv/overlays/hybrid/verify/ca-sakuracloud-provider)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`c6011bd`](https://github.com/shinichitazawa/k8s-deploy-public/commit/c6011bd) 時点。環境固有値はダミーに置換済み）
+
 - [さくらのクラウド API v1.1 ドキュメント](https://manual.sakura.ad.jp/cloud-api/1.1/)
 - [さくらのクラウド API: サーバ関連](https://manual.sakura.ad.jp/cloud-api/1.1/server/index.html)
 - [さくらのクラウド API: ディスク関連](https://manual.sakura.ad.jp/cloud-api/1.1/disk/index.html)

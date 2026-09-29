@@ -666,6 +666,8 @@ EventBus = JetStream native を採用することで、**「webhook を受けた
 
 ## 参考
 
+- 検証時の構成ファイル: [external-secrets](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/external-secrets) / [kro（IRSA ロールを作る RGD）](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/kro) / [tailscale](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/tailscale)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) commit [`c6011bd`](https://github.com/shinichitazawa/k8s-deploy-public/commit/c6011bd) 時点。環境固有値はダミーに置換済み。**Argo Events の EventSource / Sensor と Argo Workflows の WorkflowTemplate は公開リポジトリに含めていません**）
+
 - Tailscale Webhooks: https://tailscale.com/docs/features/webhooks
 - Tailscale OAuth clients: https://tailscale.com/docs/features/oauth-clients
 - Tailscale Auth keys: https://tailscale.com/docs/features/access-control/auth-keys
