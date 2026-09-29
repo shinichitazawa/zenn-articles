@@ -207,9 +207,9 @@ flowchart TB
   A4 ~~~ B1
 ```
 
-**1. 文字起こしがコントロールプレーンを巻き込んだ。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)に落としました。PriorityClass は Pod の重要度を宣言してノード逼迫時にどれから退避するかを決める Kubernetes の仕組みで、`preemptionPolicy: Never`(自分のために他の Pod を追い出さない設定)と組み合わせ、逼迫時はデータベースより先に Whisper が止められるようにしています。代償として処理時間は音声長の約 4.4 倍です。
+**1. 文字起こしがコントロールプレーンを巻き込みました。** 当初 CPU 制限 3 コアで動かしたところ、文字起こし中にノードが逼迫し、同居する共有 PostgreSQL への接続を n8n が失って 503 になりました。CPU 1 コア + 低い [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)に落としました。PriorityClass は Pod の重要度を宣言してノード逼迫時にどれから退避するかを決める Kubernetes の仕組みで、`preemptionPolicy: Never`(自分のために他の Pod を追い出さない設定)と組み合わせ、逼迫時はデータベースより先に Whisper が止められるようにしています。代償として処理時間は音声長の約 4.4 倍です。
 
-**2. liveness probe が処理中の Whisper を停止させた。** liveness probe は kubelet がコンテナの生存を定期確認し、失敗が続くとコンテナを再起動する仕組みです。`httpGet`(HTTP で確認する方式)の liveness probe(timeout 1 秒 × 60 秒間隔 × 5 回)を付けていたところ、文字起こし中は単一ワーカーが処理を占有して HTTP に応答できず、**開始からちょうど 5 分で kubelet がコンテナを kill** しました(実測)。probe を [tcpSocket](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)(HTTP 応答ではなく TCP 接続の成立だけを確認する方式)に変更して解決しています。TCP の接続確認はカーネルが受け付ける限り成功するため、アプリが忙しくても生存と判定できます。
+**2. liveness probe が処理中の Whisper を停止させました。** liveness probe は kubelet がコンテナの生存を定期確認し、失敗が続くとコンテナを再起動する仕組みです。`httpGet`(HTTP で確認する方式)の liveness probe(timeout 1 秒 × 60 秒間隔 × 5 回)を付けていたところ、文字起こし中は単一ワーカーが処理を占有して HTTP に応答できず、**開始からちょうど 5 分で kubelet がコンテナを kill** しました(実測)。probe を [tcpSocket](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)(HTTP 応答ではなく TCP 接続の成立だけを確認する方式)に変更して解決しています。TCP の接続確認はカーネルが受け付ける限り成功するため、アプリが忙しくても生存と判定できます。
 
 ## Slack 投稿と ToDo 管理
 

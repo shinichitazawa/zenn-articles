@@ -24,7 +24,7 @@ https://youtu.be/pDa4_zkVfMo
 
 ## プロジェクトの位置づけ
 
-NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワーク可観測性スイートで、`netobserv-ebpf-agent` はその「センサー」コンポーネント[^netobserv-readme]。エコシステム全体は複数リポジトリに分かれています。
+NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワーク可観測性スイートで、`netobserv-ebpf-agent` はその「センサー」コンポーネントです[^netobserv-readme]。エコシステム全体は複数リポジトリに分かれています。
 
 | リポジトリ | 役割 |
 |---|---|
@@ -33,7 +33,7 @@ NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワ�
 | [network-observability-operator](https://github.com/netobserv/netobserv-operator) | 全体を統括する Operator |
 | network-observability-console-plugin | OpenShift Console UI |
 
-最新リリースは 2026-04-03 時点の `v1.11.3-community`[^netobserv-release][^operator-release]。`netobserv-ebpf-agent` のライセンスは README 末尾で明示されており、`./bpf` 配下の eBPF コードは GPL v2、それ以外は Apache v2 という二重ライセンス[^netobserv-readme]。
+最新リリースは 2026-04-03 時点の `v1.11.3-community`[^netobserv-release][^operator-release]。`netobserv-ebpf-agent` のライセンスは README 末尾で明示されており、`./bpf` 配下の eBPF コードは GPL v2、それ以外は Apache v2 という二重ライセンスです[^netobserv-readme]。
 
 [^netobserv-release]: https://github.com/netobserv/netobserv-ebpf-agent/releases/tag/v1.11.3-community
 [^operator-release]: https://github.com/netobserv/netobserv-operator/releases
@@ -87,7 +87,7 @@ securityContext:
       - NET_ADMIN
 ```
 
-BPF / PERFMON capability を認識しない古い Kubernetes ディストリビューションでは privileged mode が必要[^netobserv-readme]。
+BPF / PERFMON capability を認識しない古い Kubernetes ディストリビューションでは privileged mode が必要です[^netobserv-readme]。
 
 サポートアーキテクチャは Operator の README で明示されており、amd64 / arm64 / ppc64le / s390x[^operator-arch]。ARM64 サポートがあるので Raspberry Pi (Cortex-A72/A76) でも動く想定ですが、kernel に BTF (BPF Type Format) が出力されている必要がある — これは後の検証セクションで重要になります。
 
@@ -123,7 +123,7 @@ helm install netobserv -n netobserv --create-namespace \
 
 ### (b) standalone モード
 
-Operator なしで agent バイナリを直接動かす[^netobserv-readme]:
+Operator なしで agent バイナリを直接動かします[^netobserv-readme]:
 
 ```bash
 export TARGET_HOST=...
@@ -131,7 +131,7 @@ export TARGET_PORT=...
 sudo -E bin/netobserv-ebpf-agent
 ```
 
-flow を gRPC で外部の collector (FLP など) に送る形。
+flow を gRPC で外部の collector (FLP など) に送る形です。
 
 ### (c) direct-flp モード
 
@@ -164,7 +164,7 @@ README の Deployment test 節に次の記述があります[^netobserv-readme]:
 
 > Despite Amazon Linux 2 enables eBPF by default in EC2, the EKS images are shipped with disabled eBPF.
 
-つまり Amazon EKS の AMI は eBPF が無効化されて出荷されます。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要。
+つまり Amazon EKS の AMI は eBPF が無効化されて出荷されます。そのため AL2 / AL2023(Amazon Linux 2023)ベースのノードグループでは追加設定が必要です。
 
 | ノード OS | eBPF の出荷状態 | NetObserv を動かすには |
 |---|---|---|
@@ -232,7 +232,7 @@ flowchart TB
 
 ## 実機検証
 
-ここからは手元で実際に動かしてみた記録。2 つの環境で対比 することで、agent の動作要件 (特に BTF 出力) の意味を明らかにします。
+ここからは手元で実際に動かしてみた記録です。2 つの環境で対比 することで、agent の動作要件 (特に BTF 出力) の意味を明らかにします。
 
 ### 環境 A: WSL2 + docker k3s (x86_64, BTF あり)
 
@@ -290,7 +290,7 @@ map[AgentIP:172.17.0.5 Bytes:1709 DstAddr:172.23.210.65 DstMac:02:42:b2:d9:d9:73
 - `DstAddr:10.42.0.x` → k3s の Pod CIDR
 - `Interfaces:[veth6947b921 cni0]` → k3s 内部 (flannel CNI 経由) のフロー
 
-Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が機能していることを確認。
+Etype 2048 = IPv4、Proto 6 = TCP。フロー観測が機能していることを確認できました。
 
 ここまでで「READMEの主張通り、kernel 5.8+ + BTF + privileged で direct-flp モードが動く」を実証しました。
 
@@ -314,7 +314,7 @@ kubectl apply -k netobserv/overlays/rasp
 
 `overlays/rasp/` には arm64 nodeSelector と control-plane の toleration を追加してあります。control-plane に schedule させる必要があるためです。
 
-Pod は約 60 秒で Running 状態になった (Pi 上での arm64 image pull に時間がかかる)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
+Pod は約 60 秒で Running 状態になった (Pi 上での arm64 image pull に時間がかかります)。しかし agent の起動シーケンスを進めるとログの最終行で fatal exit:
 
 ```text
 level=info  msg="starting NetObserv eBPF Agent [build version: main-6fc580a]"
@@ -337,7 +337,7 @@ $ kubectl run kernel-check --rm -it --image=busybox --overrides='{"spec":{"nodeN
 ls: /sys/kernel/btf/vmlinux: No such file or directory
 ```
 
-`/sys/kernel/btf/vmlinux` 不在。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
+`/sys/kernel/btf/vmlinux` がありません。これは Raspberry Pi OS の kernel が `CONFIG_DEBUG_INFO_BTF=y` を有効化していない ことを意味します。
 
 用語を先に整理します。**BTF** (BPF Type Format) は kernel が自身の構造体レイアウトを公開するための型情報で、`/sys/kernel/btf/vmlinux` として提供されます。**CO-RE** (Compile Once - Run Everywhere) は、eBPF プログラムを kernel ごとに再コンパイルせず、ロード時にこの BTF を参照して構造体オフセットを書き換える(**relocation**)仕組みです。
 
@@ -374,7 +374,7 @@ Raspberry Pi + EKS Hybrid Nodes の文脈では、Cilium が主であり Hubble 
 
 - NetObserv eBPF Agent は CNI 非依存 の eBPF フロー観測 sensor[^netobserv-readme]
 - アーキテクチャ: eBPF Agent (DaemonSet) → Kafka (任意) → FLP (flowlogs-pipeline) → Loki / Prometheus / 任意の sink
-- v1.4 以降は Loki 必須ではない、Kafka 経由で任意の分析基盤に流せる[^no-loki-blog]
+- v1.4 以降は Loki 必須ではない、Kafka 経由で任意の分析基盤に流せます[^no-loki-blog]
 - EKS では Bottlerocket なら動く、AL 系は要 eBPF 有効化[^netobserv-readme]
 - Cilium Hubble との使い分け: Cilium 採用なら Hubble、CNI 変えたくないなら NetObserv
 - **実機検証**: WSL2 上の docker k3s で flow 取得成功、Raspberry Pi OS では BTF 不在で fatal。Pi で使うなら Ubuntu 24.04 LTS への OS 切替が必須

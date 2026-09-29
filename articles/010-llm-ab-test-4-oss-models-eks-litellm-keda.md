@@ -312,9 +312,9 @@ LiteLLM の IRSA(IAM Roles for Service Accounts) + VPC Endpoint で Bedrock を�
 これと OSS self-host 月 $80 を比較すると、結論は次のようになります。
 
 - **データ主権を取らない前提**なら Nova Micro/Lite が安価です。1 億 token 級まで OSS self-host のコストに並ばれません
-- **データ主権を取る**なら OSS self-host が必須。コスト固定 $80/月で量を気にせず使える
+- **データ主権を取る**なら OSS self-host が必須。コスト固定 $80/月で量を気にせず使えます
 - **multimodal が必要** → Nova Lite/Pro が現実的、OSS は別途 vision モデルを追加検討
-- **日本語精度最優先** → Sarashina/PLaMo (OSS) vs Nova Pro の judge 直接比較で決める
+- **日本語精度最優先** → Sarashina/PLaMo (OSS) vs Nova Pro の judge 直接比較で決めます
 
 ### 横断比較フロー
 
@@ -421,7 +421,7 @@ kubectl run -it --rm temporal-cli --image=temporalio/cli:latest --restart=Never 
 - 既存パターン (PR-feedback / Tailscale rotation 等) と構造を統一できます
 - 将来の webhook 拡張 (Slack slash command / GitHub Actions / 外部 SaaS) が EventSource 追加だけで済みます
 - Sensor の filter / retry / payload 整形 / event 履歴が無料で手に入ります
-- 観測性: いつ誰が trigger したかが Argo Events で一元的に追える
+- 観測性: いつ誰が trigger したかが Argo Events で一元的に追えます
 
 排他ではなく、デバッグ時は Temporal CLI 直接も併用可能です。
 

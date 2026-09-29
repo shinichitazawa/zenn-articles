@@ -8,18 +8,18 @@ published: false
 
 ## はじめに
 
-VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用上の負担になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれる。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、更新を忘れると内部通信が止まる。
+VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用上の負担になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれます。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、更新を忘れると内部通信が止まります。
 
 この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお記事末尾の付録では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は本編で足ります)。
 
-想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい人。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利く。
+想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい方です。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利きます。
 
 :::message alert
-前提: 本構成は Tailscale の `nodeKeyExpiringInOneDay` webhook を trigger とします。[公式 doc](https://tailscale.com/docs/features/access-control/key-expiry) によると「tagged device に最初に tag が付いたとき、その device の key expiry は default で disabled」となります。本記事の構成を動かすには、対象 device の key expiry を admin console から 明示的に有効化 しておく必要があります。device 単位で expiry を切ったままにしたい場合は、本記事の trigger 部分を CronWorkflow (例: 毎月 1 日) に差し替えれば auth key 期限ベースで同じ rotation が回せる。
+前提: 本構成は Tailscale の `nodeKeyExpiringInOneDay` webhook を trigger とします。[公式 doc](https://tailscale.com/docs/features/access-control/key-expiry) によると「tagged device に最初に tag が付いたとき、その device の key expiry は default で disabled」となります。本記事の構成を動かすには、対象 device の key expiry を admin console から 明示的に有効化 しておく必要があります。device 単位で expiry を切ったままにしたい場合は、本記事の trigger 部分を CronWorkflow (例: 毎月 1 日) に差し替えれば auth key 期限ベースで同じ rotation が回せます。
 :::
 
 :::message
-本記事中の AWS account ID (`111111111111` / `123456789012`)、ドメイン (`webhooks.example.com`)、リソース名 (`myapp-*`) はすべて架空。実構成の名前を読み替えてください。
+本記事中の AWS account ID (`111111111111` / `123456789012`)、ドメイン (`webhooks.example.com`)、リソース名 (`myapp-*`) はすべて架空です。実構成の名前を読み替えてください。
 :::
 
 :::message
@@ -101,7 +101,7 @@ flowchart TB
   GH --> AC --> EKS
 ```
 
-矢印の番号は「実行時にトリガされる順序」を表す。
+矢印の番号は「実行時にトリガされる順序」を表します。
 
 ## 構成要素ごとの責務
 
@@ -126,7 +126,7 @@ flowchart TB
 
 ## 実装: Argo Events EventSource
 
-Tailscale console から webhook URL を発行すると、payload は `Tailscale-Webhook-Signature` header 付きで HTTPS POST されます。Body は 常に配列で、1 POST に複数 event が乗ることがある (公式 doc に明示あり)[^1]。
+Tailscale console から webhook URL を発行すると、payload は `Tailscale-Webhook-Signature` header 付きで HTTPS POST されます。Body は 常に配列で、1 POST に複数 event が乗ることがあります (公式 doc に明示あり)[^1]。
 
 ```yaml:eventsource-tailscale-webhook.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -147,7 +147,7 @@ spec:
       url: https://webhooks.example.com
 ```
 
-HMAC 検証を EventSource ではなく Sensor の data filter に寄せています。理由は、Argo Events の generic webhook には Tailscale 形式の `t=<epoch>,v1=<hmac>` を verify する built-in がなく、自作 validator を前段に挟むほどの脅威モデルではないため。Sensor 側で event type と deviceName を厳格に絞る方が実装コストが低い。
+HMAC 検証を EventSource ではなく Sensor の data filter に寄せています。理由は、Argo Events の generic webhook には Tailscale 形式の `t=<epoch>,v1=<hmac>` を verify する built-in がなく、自作 validator を前段に挟むほどの脅威モデルではないためです。Sensor 側で event type と deviceName を厳格に絞る方が実装コストが低いためです。
 
 EventSource と Sensor は直接つながっているわけではなく、間に `EventBus` という CR(実体は NATS JetStream stream)が介在します。この保証セマンティクスの深掘りは記事末尾の「付録: NATS JetStream を EventBus に使う意味」にまとめました(実装だけ追う場合は読み飛ばし可)。
 
@@ -252,11 +252,11 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-`subjects[].namespace` に `argo-events` を入れることで、Sensor 側 SA が `argo` ns の権限を引ける。
+`subjects[].namespace` に `argo-events` を入れることで、Sensor 側 SA が `argo` ns の権限を引けます。
 
 ## WorkflowTemplate と rotate.py
 
-WorkflowTemplate は public な `python:3.12-slim` に ConfigMap として `rotate.py` を mount するだけのシンプル構成。秘密情報はすべて ExternalSecret 経由で env に注入します。
+WorkflowTemplate は public な `python:3.12-slim` に ConfigMap として `rotate.py` を mount するだけのシンプルな構成です。秘密情報はすべて ExternalSecret 経由で env に注入します。
 
 ```yaml:workflowtemplate-tailscale-rotation.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -390,15 +390,15 @@ def assume_role(role_arn, region):
 # 6. Slack 通知 (成否問わず)
 ```
 
-90 日というのは Tailscale の auth key 最大有効期限から逆算した値。
+90 日というのは Tailscale の auth key 最大有効期限から逆算した値です。
 
 :::message alert
-`description` フィールドのバリデーションは公式 docs に明示なし。`:` `.` `+` `(` `)` を含めると HTTP 400 が返るのは実測。本記事執筆時点 (2026-06) でこの挙動。
+`description` フィールドのバリデーションは公式 docs に明示がありません。`:` `.` `+` `(` `)` を含めると HTTP 400 が返ることは実測しました。本記事執筆時点 (2026-06) ではこの挙動でした。
 :::
 
 ## IRSA 経路 (Kro + ACK iam-controller)
 
-EKS 側 ServiceAccount → demo 側 IAM Role → target account IAM Role の 2 段。demo 側 IAM Role は Kro の RGD で定義した `IRSARole` という high-level CRD で記述します。Kro は[複数の Kubernetes リソースを 1 つの cohesive unit として扱う仕組み](https://kro.run/docs/getting-started/Installation)で、本構成では「IAM Role + trust policy + SA annotation のセット」を `IRSARole` という 1 種類の YAML に閉じ込める。
+EKS 側 ServiceAccount → demo 側 IAM Role → target account IAM Role の 2 段です。demo 側 IAM Role は Kro の RGD で定義した `IRSARole` という high-level CRD で記述します。Kro は[複数の Kubernetes リソースを 1 つの cohesive unit として扱う仕組み](https://kro.run/docs/getting-started/Installation)で、本構成では「IAM Role + trust policy + SA annotation のセット」を `IRSARole` という 1 種類の YAML に閉じ込めます。
 
 ```yaml:tailscale-rotator-irsa.yaml
 apiVersion: kro.run/v1alpha1
@@ -430,15 +430,15 @@ spec:
     }
 ```
 
-Kro RGD が裏で ACK iam-controller の `Role` CR を生成し、ACK が AWS API を呼び出して実 IAM Role を作る、という構図。
+Kro RGD が裏で ACK iam-controller の `Role` CR を生成し、ACK が AWS API を呼び出して実 IAM Role を作る、という構図です。
 
 注意: ACK iam-controller の IAM policy 側で `iam:CreateRole` の `Resource` を `arn:aws:iam::*:role/*-irsa` のように pattern 限定している場合、roleName が `-irsa` suffix で終わらないと controller が `AccessDenied` で create に失敗します。命名規約として `-irsa` を必ず付ける運用にしました。
 
-target account 側の cross-account Role は Terraform で別管理 (詳細は割愛)。trust policy で `ArnEquals aws:PrincipalArn` を demo 側 IRSA Role に絞り、policy は最小権限で `secretsmanager:Put/GetSecretValue` + `autoscaling:StartInstanceRefresh,DescribeInstanceRefreshes,DescribeAutoScalingGroups` のみ。
+target account 側の cross-account Role は Terraform で別管理です (詳細は割愛)。trust policy で `ArnEquals aws:PrincipalArn` を demo 側 IRSA Role に絞り、policy は最小権限で `secretsmanager:Put/GetSecretValue` + `autoscaling:StartInstanceRefresh,DescribeInstanceRefreshes,DescribeAutoScalingGroups` のみに絞っています。
 
 ## ASG instance refresh の MinHealthyPercentage
 
-bastion は single-AZ / single-instance 構成。default の `MinHealthyPercentage: 90` のままでも[公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) の "Violate min healthy percentage" fallback で実行はされるが、同 doc が「single instance の ASG では推奨しない、instance refresh の開始で outage を引き起こし得る」と明示している通り、意図しない瞬断が紛れ込む。`MinHealthyPercentage: 0` を Preferences に明示して「短時間の 0 instance 状態を許容する」運用契約を表に出します[^5]。
+bastion は single-AZ / single-instance 構成です。default の `MinHealthyPercentage: 90` のままでも[公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) の "Violate min healthy percentage" fallback で実行はされますが、同 doc が「single instance の ASG では推奨しない、instance refresh の開始で outage を引き起こし得る」と明示している通り、意図しない瞬断が紛れ込みます。`MinHealthyPercentage: 0` を Preferences に明示して「短時間の 0 instance 状態を許容する」運用契約を表に出します[^5]。
 
 ```python
 session.client("autoscaling").start_instance_refresh(
@@ -499,7 +499,7 @@ spec:
 
 ## 検証手順
 
-最終的に「webhook → 60 秒以内に新 key が target Secret に書き込まれ、bastion が rolling 入れ替えされる」ことを確認したい。手動 trigger は次の通り。
+最終的に「webhook → 60 秒以内に新 key が target Secret に書き込まれ、bastion が rolling 入れ替えされる」ことを確認します。手動 trigger は次のとおりです。
 
 ```bash
 kubectl -n argo create -f - <<'EOF'
@@ -541,15 +541,15 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ### EventBus がなぜ必要か
 
-Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれる。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できます。
+Argo Events では[「EventSource と Sensor の間のすべての event 伝達は EventBus を経由する」](https://argoproj.github.io/argo-events/eventbus/eventbus/)と明示されています。EventSource と Sensor を CR として別 Pod に分離する以上、両者は メッセージング層越しの非同期通信 で結ばれます。webhook を受信したタイミングと Sensor が filter 評価するタイミングは独立で、Sensor が一時的に落ちていても、EventBus が event を保持してくれていれば再起動後に処理を継続できます。
 
-EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済み (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選びます。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
+EventBus がサポートする実装は[公式ドキュメントによると](https://argoproj.github.io/argo-events/eventbus/eventbus/)、NATS Streaming / NATS JetStream / Kafka の 3 種類です。このうち NATS Streaming は upstream の Synadia が 2023-06で support 終了を宣言、`nats-streaming-server` repository は[2025-12にアーカイブ](https://github.com/nats-io/nats-streaming-server)済みです (最終 release は v0.25.6)。新規構築では JetStream か Kafka を選びます。Kafka を別途立てる気がなければ、Kubernetes だけで完結する JetStream native が選択肢になります。
 
 ### Core NATS と JetStream の違い
 
 NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstream)の 2 層があります。
 
-- **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消える (fire-and-forget)
+- **Core NATS**: subscribe している pod がその瞬間に居ないとメッセージは消えます (fire-and-forget)
 - **JetStream**: 公式が "JetStream allows the NATS server to capture messages and replay them to consumers as needed" と明言する通り、broker 側にメッセージを永続化してくれます。Consumer が落ちて再起動しても、未 ack のメッセージを再配送します
 
 webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補になりません。
@@ -571,14 +571,14 @@ webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) �
 | Stream / Consumer の state machine | JetStream 独自 |
 | API endpoint group (`$JS.API.*`) | JetStream 独自 |
 
-client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけ。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開されます[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
+client から見れば「JetStream を使う」とは、通常の NATS publish/subscribe を `$JS.API.>` という予約 subject に投げるだけです。`$` は[NATS の system reserved prefix](https://docs.nats.io/concepts/subjects) (ユーザー subject と区別)、`JS` は JetStream の略 (Node.js とは無関係)、`API` は JetStream の RPC 群、`.>` は NATS の wildcard で「ここから先の token すべてに match」。具体的には `$JS.API.STREAM.CREATE.<stream>` (Stream 作成)、`$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` (Pull モードで次の msg 取得) のような RPC subject 群が公開されます[^js2]。Go / JavaScript / Python 等 48 言語の SDK ([nats.go / nats.js / nats.py ...](https://docs.nats.io/learn/)) は裏でこの API call をしているだけで、JetStream 専用のプロトコルや port が増えるわけではありません。
 
 [^js1]: ソースは [github.com/nats-io/nats-server](https://github.com/nats-io/nats-server) の `server/jetstream*.go`。リポジトリは Go 99.7%、Apache 2.0、CNCF Incubating project。
 [^js2]: JetStream API subject の完全な一覧は [JetStream API reference](https://docs.nats.io/reference/jetstream/api/) を参照。
 
 ### Argo Events 公式の JetStream native deployment
 
-`EventBus` CR を 1 個書くだけで、Argo Events controller が JetStream の StatefulSet を namespace 内に立ててくれる。[公式 doc の native deployment](https://argoproj.github.io/argo-events/eventbus/jetstream/) の例:
+`EventBus` CR を 1 個書くだけで、Argo Events controller が JetStream の StatefulSet を namespace 内に立ててくれます。[公式 doc の native deployment](https://argoproj.github.io/argo-events/eventbus/jetstream/) の例:
 
 ```yaml:eventbus-default.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -614,9 +614,9 @@ JetStream の Stream は 3 種類の retention policy を持つ ([公式](https:
 | WorkQueue | consumer が ack したら削除、1 subject に 1 consumer のみ | キュー型 |
 | Interest | consumer が ack するまで保持、consumer 不在なら不要 | pub-sub 風 |
 
-Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できる (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確 (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ありません。
+Argo Events native deployment では各 Stream の default 値が controller の ConfigMap (`argo-events-controller-config`) に焼かれており、EventBus CR の [`spec.jetstream.streamConfig`](https://argoproj.github.io/argo-events/eventbus/jetstream/) で個別に override できます (`maxAge: 24h` 等)。retention policy のデフォルトは公式 doc 上で明示されておらず、上記 ConfigMap を `kubectl get configmap argo-events-controller-config -o yaml` で確認するのが正確です (※公式 doc の推奨方法)。auth key rotation のような「event を捨てても 1 日以内に再送される」性質の workload では Limits ベースで過不足ありません。
 
-storage は `File` がデフォルト (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で年単位で保持できます。
+storage は `File` がデフォルトです (PVC 上にコミット)。bastion auth key のような低頻度低容量なら 10Gi で年単位で保持できます。
 
 ### Consumer の Ack semantics
 
@@ -636,7 +636,7 @@ Argo Events Sensor は durable consumer として ack-explicit でメッセー�
 - ただし instance refresh は in-flight を 1 つしか許容しません (API が `InstanceRefreshInProgress` で 400 を返します)
 - Workflow 側で `start_instance_refresh` 直後に既存 refresh が無いか check するか、`ttlStrategy` + retry policy で対処します
 
-実装では「2 回目の Workflow が走った時に instance refresh が in-progress なら成功扱いで抜ける」分岐を入れている (rotate.py の例外 handling)。
+実装では「2 回目の Workflow が走った時に instance refresh が in-progress なら成功扱いで抜ける」分岐を入れています (rotate.py の例外 handling)。
 
 ### 運用上の注意点
 

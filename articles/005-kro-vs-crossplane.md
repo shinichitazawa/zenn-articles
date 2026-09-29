@@ -10,7 +10,7 @@ published: false
 
 Kubernetes マニフェストを宣言的に管理していると、「複合リソースの取り扱い」と「クラウドリソースの宣言的管理」で詰まる場面があります。これらを解決する OSS として Kro (Kube Resource Orchestrator) と Crossplane があります。両者は重なる領域があるが思想が異なります。本記事では両者の仕組みと選び方を整理します。
 
-想定読者は、Kustomize / Helm での複合リソース管理に限界を感じ、上位の抽象化レイヤを検討している中級者。
+想定読者は、Kustomize / Helm での複合リソース管理に限界を感じ、上位の抽象化レイヤを検討している中級者です。
 
 :::message
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
@@ -179,7 +179,7 @@ Kro を選ぶ理由になりやすい点:
 
 ## Kro RGD の実装例: IRSA Role
 
-EKS Hybrid Nodes 移行後、IRSA + ACK で IAM Role を Kubernetes API で作る:
+EKS Hybrid Nodes 移行後、IRSA + ACK で IAM Role を Kubernetes API で作ります:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -233,7 +233,7 @@ spec:
     - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 ```
 
-ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付ける。Pod が IRSA で AWS API を呼び出せる。
+ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付けます。Pod は IRSA で AWS API を呼び出せます。
 
 ## 採用判断フロー
 
