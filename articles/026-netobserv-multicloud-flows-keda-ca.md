@@ -10,8 +10,6 @@ published: false
 
 以前の記事（NetObserv eBPF Agent による CNI 非依存のフロー観測）では、NetObserv eBPF Agent の direct-flp モードを単一ノードで検証しました。本記事はその続編で、**オンプレの Raspberry Pi とクラウドのスポット VM を 1 つの k3s クラスタに束ねた構成で、クラウドを跨ぐ pod-to-pod 通信を NetObserv が両側のノードから観測できること**を実機で確認します。対象は Azure・AWS・GCP の 3 クラウドで、GCP は Cluster Autoscaler の GCE provider をフォークして成立させました。
 
-もう 1 つのテーマは検証の仕方です。ノードやワークロードを手で起動してしまうと自動化の検証になりません。そこで **KEDA の cron スケーラが決まった時刻にワークロードを 0→1 に起こし、行き場のない Pod を Cluster Autoscaler が検知してクラウドノードを 0→1 で起動する**、という人手ゼロのチェーンを組み、その通信を NetObserv で観測しました。終了時刻には KEDA が 0 に戻し、Cluster Autoscaler がノードを畳むところまで自動です。
-
 :::message
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。実測値・ログ・スクリーンショットは筆者環境で 2026-08-14 に取得したもので、読者環境では結果が異なる場合があります。
 :::
@@ -61,6 +59,8 @@ flowchart TB
 client は rpi0 側に常駐させておき、nginx が現れた瞬間からクラウド跨ぎの通信になります。client を「置いておく」のは固定の土台であり、通信の開始はチェーンの完成そのものが引き金です。
 
 ## 人手ゼロで起こす — KEDA cron と Cluster Autoscaler
+
+観測に使うワークロードとクラウドノードは、手で起動せずに次の流れで起こしました。KEDA の cron スケーラが決まった時刻にワークロードを 0→1 にし、行き場のない Pod を Cluster Autoscaler が検知してクラウドノードを 0→1 で起動します。終了時刻には KEDA が 0 に戻し、Cluster Autoscaler がノードを畳みます。
 
 KEDA の [cron スケーラ](https://keda.sh/docs/2.20/scalers/cron/)は、時刻窓に入ると対象を望みのレプリカ数へスケールします。公式は次のように説明しています。
 
