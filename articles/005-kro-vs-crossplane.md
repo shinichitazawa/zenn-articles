@@ -18,9 +18,9 @@ Kubernetes マニフェストを宣言的に管理していると、「複合リ
 
 ## 複合リソース・クラウドリソース管理で直面する問題
 
-Kustomize + ArgoCD で多数のアプリを deploy していると、以下の問題に直面します。
+Kustomize + ArgoCD で多数のアプリをデプロイしていると、以下の問題に直面します。
 
-1. **複合リソースの煩雑さ**: Web app 1 個を deploy するのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA(IAM Roles for Service Accounts)の Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
+1. **複合リソースの煩雑さ**: Web アプリ 1 個をデプロイするのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA(IAM Roles for Service Accounts)の Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
 2. **values の重複**: Helm chart の overlay で同じ値を environment 毎に書き直す
 3. **クラウドリソースだけが GitOps の外にある**: アプリは Kustomize + ArgoCD で宣言していますが、IAM Role や S3 Bucket は Terraform 側に残り、系統が 2 つに分かれます
 
@@ -93,7 +93,7 @@ spec:
         # ...
 ```
 
-これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースを deploy できます:
+これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースをデプロイできます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -144,7 +144,13 @@ helm install kro oci://registry.k8s.io/kro/charts/kro \
 - **Composite Resource (XR)** をユーザが apply します
 
 :::message
-v1 では `CompositeResourceClaim` (XRC) を apply する形でしたが、v2 で Claim は廃止されました。公式は「The new namespaced and cluster scoped XRs in Crossplane v2 don't support claims.」と明記しており、あわせて「Crossplane v2 makes composite resources (XRs) namespaced by default.」と、XR が既定で namespaced になっています（[What's New in v2](https://docs.crossplane.io/latest/whats-new/)、2026-08 時点で取得）。XRD の API は `apiextensions.crossplane.io/v2` で、`scope` の既定が `Namespaced` です。v1 の XRD は `LegacyCluster` scope として後方互換が保たれます。
+Crossplane v1 と v2 では、ユーザが apply するものが変わっています([What's New in v2](https://docs.crossplane.io/latest/whats-new/)、2026-10 時点で取得)。
+
+- v1 では、XR ではなく Claim(`CompositeResourceClaim`、XRC)を apply していました
+- v2 では Claim が廃止されました。公式は「The new namespaced and cluster scoped XRs in Crossplane v2 don't support claims.」と明記しています
+- 代わりに XR を直接 apply します。XR は既定で namespaced です(「Crossplane v2 makes composite resources (XRs) namespaced by default.」)
+- XRD の API は `apiextensions.crossplane.io/v2` で、`scope` の既定は `Namespaced` です
+- v1 の XRD API を使うと `scope` の既定は `LegacyCluster` になり、後方互換が保たれます
 :::
 
 ```yaml
@@ -165,7 +171,7 @@ spec:
 
 - **全クラウド対応** (AWS / GCP / Azure / Kubernetes / GitHub / etc.)
 - Composition で深い抽象化が可能
-- Pod が重い (目安 1GB RAM+。※筆者未検証の概算)、低リソース環境では負荷大
+- Pod が重い (目安 RAM 1Gi(1,024Mi)以上。※筆者未検証の概算)、低リソース環境では負荷大
 - Provider のバージョン管理 (Crossplane core + Provider) が複雑
 
 ## 比較表
@@ -174,7 +180,7 @@ spec:
 |---|---|---|
 | 思想 | Kubernetes ネイティブ RGD で複合リソースをバンドル | クラウド全体を Kubernetes API 化 |
 | 対象 | Kubernetes リソース全般(クラウドは ACK / KCC / ASO 経由) | AWS / GCP / Azure / その他全部 |
-| 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1GB+ ※筆者未検証の概算) |
+| 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1,024Mi 以上 ※筆者未検証の概算) |
 | API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
 | 学習コスト | 中 (RGD 設計) | 高 (Composition + Provider) |
@@ -187,7 +193,7 @@ spec:
 
 | 条件 | Kro | Crossplane |
 |---|---|---|
-| RAM の限られた環境(エッジ / SBC) | ○ 軽量 | △ core + Provider で 1GB+(※未検証の概算) |
+| RAM の限られた環境(エッジ / SBC(Single Board Computer。Raspberry Pi などの小型ボード)) | ○ 軽量(アイドル実測 50Mi) | △ core + Provider で 1,024Mi 以上(※未検証の概算) |
 | AWS 中心(ACK と併用) | ○ | 過剰になりやすい |
 | 複数クラウドの統合管理 | △ クラウドごとにコントローラ(ACK / KCC / ASO)を入れる | ○ 本領 |
 | 学習コスト | Kubernetes YAML の延長(RGD) | Composition の設計が必要 |
@@ -195,7 +201,7 @@ spec:
 
 Kro を選ぶ理由になりやすい点:
 
-1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
+1. **リソース制約**: Crossplane core + Provider AWS で RAM 1Gi(1,024Mi)以上を消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane のマルチクラウド対応は過剰になります
 3. **学習コスト**: Composition の設計には時間がかかります。RGD は Kubernetes YAML の延長で書けます
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
