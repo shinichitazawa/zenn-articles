@@ -1,5 +1,5 @@
 ---
-title: "遅れて届く行と追加した列に対する SQLMesh と dbt 2.0 の挙動"
+title: "遅延到着データと列の追加に対する SQLMesh と dbt 2.0 の挙動"
 emoji: "⏱️"
 type: "tech"
 topics: ["sqlmesh", "dbt", "duckdb", "trino", "dataengineering"]
@@ -49,6 +49,10 @@ silver のモデルは、SQLMesh の `INCREMENTAL_BY_TIME_RANGE` で `cron '@hou
 
 受信時刻(`time_received`)で見た遅れは小さく、1 時間に 250 行前後、最大でも 4 秒でした。欠けの大半は、**受信済みでもまだテーブルに書かれていない行**と考えました。取り込みサービスは 60 秒ごとにまとめて追記するので、毎時 0 分に SQLMesh が直前の 1 時間を読む時点では、最後の 1 分前後の行がまだ入っていない可能性があります。
 
+このように、イベントの時刻が属する区間を処理した後でテーブルに入るデータを、本記事では遅延到着データと呼びます。dbt の [microbatch の設定項目の説明](https://docs.getdbt.com/docs/build/incremental-microbatch)では、`lookback` を次のように説明しています。
+
+> Process X batches prior to the latest bookmark to capture late-arriving records.
+
 ## 模擬の方法
 
 入力の行を、**到着時刻 = 受信時刻 + 60 秒**の順に模擬用の表へ入れました。毎時 0 分(07:00〜13:00)に、その時点で到着済みの行だけが見える状態で、次の方式を実行しました。13:00 は全行が到着した後の実行です。
@@ -69,7 +73,7 @@ dbt の microbatch は、[公式ドキュメント](https://docs.getdbt.com/docs
 
 dbt 2.0.5 には実行時刻を外から与えるオプションが無いので、[libfaketime](https://github.com/wolfcw/libfaketime) で dbt から見える時計だけを各時刻の 20 秒後にずらしました。処理する区間は dbt 自身が決めています。検証コードと結果の全体は、末尾の参考に挙げた構成ファイルにあります。
 
-## 結果: 遅れて届く行
+## 結果: 遅延到着データ
 
 時間ごとに、正解(入力の全行)から各方式の行数を引いた値です。
 
@@ -93,11 +97,11 @@ SQLMesh の定義は、[モデルの設定項目の説明](https://github.com/SQ
 
 > It must be a positive integer and specifies how many `interval_unit`s intervals before the current interval the model should include.
 
-dbt の lookback の既定値 1 は、遅れて届く行のための設定です。ただし毎時 0 分に実行すると、その 1 つは実行時点の(まだ空の)区間に使われ、終わったばかりの 1 時間を作り直す区間にはなりません。そのため、今回の模擬では SQLMesh の lookback なしと同じ行数になりました。
+dbt の lookback の既定値 1 は、遅延到着データのための設定です。ただし毎時 0 分に実行すると、その 1 つは実行時点の(まだ空の)区間に使われ、終わったばかりの 1 時間を作り直す区間にはなりません。そのため、今回の模擬では SQLMesh の lookback なしと同じ行数になりました。
 
 ### 旧来の増分の欠けが少ない理由
 
-旧来の増分は「表の中の最大時刻より新しい行」を足します。取りこぼすのは、最大時刻より古い時刻を持ったまま遅れて届いた行だけです。毎時の区間で区切る方式は「処理した区間に、後から届いた行」をすべて取りこぼすので、こちらの方が欠けが大きくなりました。
+旧来の増分は「表の中の最大時刻より新しい行」を足します。取りこぼすのは、最大時刻より古い時刻を持つ遅延到着データだけです。毎時の区間で区切る方式は「処理済みの区間に後から到着したデータ」をすべて取りこぼすので、こちらの方が欠けが大きくなりました。
 
 ## 結果: 列を足したとき
 

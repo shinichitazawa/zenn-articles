@@ -8,7 +8,7 @@ published: false
 
 ## はじめに
 
-[前回の記事](https://zenn.dev/shinichitazawa/articles/039-sqlmesh-dbt-late-arrival-schema-change)では、遅れて届く行と追加した列に対する SQLMesh と dbt の挙動を比べました。本記事はその続きで、データパイプラインの運用中に起きる次の場面を、同じ入力で両方に再現しました。
+[前回の記事](https://zenn.dev/shinichitazawa/articles/039-sqlmesh-dbt-late-arrival-schema-change)では、遅延到着データと列の追加に対する SQLMesh と dbt の挙動を比べました。本記事はその続きで、データパイプラインの運用中に起きる次の場面を、同じ入力で両方に再現しました。
 
 - 実行が飛んだとき、一部の区間だけ失敗したとき
 - 上流の過去データが後から訂正されたとき
@@ -173,10 +173,10 @@ def landed(batch: DatetimeRanges, context: ExecutionContext):
     return [(s, e) for s, e in batch if e.timestamp() <= newest]
 ```
 
-| | 2 回目の実行の後(09〜11 時台が届いた後) |
+| | 2 回目の実行の後(09〜11 時台が到着した後) |
 |---|---|
-| SQLMesh(signal あり) | 06〜10 時(11 時は 12:00 の行が届くまで待つ) |
-| SQLMesh(signal なし) | 06〜08 時だけ。1 回目に 09〜11 時を 0 行で「処理済み」にしたので、遅れて届いた行は入らない |
+| SQLMesh(signal あり) | 06〜10 時(11 時は 12:00 以降の行が到着するまで待つ) |
+| SQLMesh(signal なし) | 06〜08 時だけ。1 回目に 09〜11 時を 0 行で「処理済み」にしたので、遅延到着データは入らない |
 | dbt microbatch | 06〜08 時と 11 時。09・10 時は入らない |
 
 dbt には、モデルの実行を到着まで止める仕組みがありません。[`dbt source freshness`](https://docs.getdbt.com/docs/deploy/source-freshness) は入力が古いことを検出しました(`Stale source src.land (last updated 2h 59m ago)`)が、`dbt run` はそれとは別に実行され、成功しました。
