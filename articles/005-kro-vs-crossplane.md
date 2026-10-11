@@ -112,16 +112,8 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 
 - **Kubernetes ネイティブ** (CRD ベース、verifier/JIT 不要)
 - 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kubernetes-sigs/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
-- クラウドリソースは各クラウドのコントローラに任せます。AWS は ACK、GCP は Config Connector(KCC)、Azure は Azure Service Operator(ASO)の CRD を RGD に入れて束ねます
+- クラウドリソースは各クラウドのコントローラに任せます。AWS は ACK、GCP は Config Connector(KCC)、Azure は Azure Service Operator(ASO)の CRD を RGD に入れて束ねます([Google Cloud の告知記事](https://cloud.google.com/blog/products/containers-kubernetes/introducing-kube-resource-orchestrator)、2026-10 時点で取得)
 - v0.9.x、alpha API なので破壊的変更の可能性あり
-
-軽いのは AWS 専用だからではなく、設計によるものです。Kro はクラウドの API を呼ぶ部分を持たず、Kubernetes 上のリソースを組み合わせることだけを担います。Kro は Google Cloud・AWS・Azure の 3 社が最初から共同で始めたプロジェクトで、2026-10 時点で取得した Google Cloud の告知記事には次のように書かれています。
-
-> kro can be used to group and manage any Kubernetes resources. Tools like ACK, KCC, or ASO define CRDs to manage cloud provider resources from Kubernetes
->
-> — [Introducing Kube Resource Orchestrator, or kro — Google Cloud Blog](https://cloud.google.com/blog/products/containers-kubernetes/introducing-kube-resource-orchestrator)
-
-これに対して Crossplane は、各クラウドの API を呼ぶ Provider を自前で持ちます。クラウドのリソース種別ごとに CRD とコントローラが入るので、その分だけ重くなります。
 
 ### Install
 
