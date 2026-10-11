@@ -18,10 +18,6 @@ EKS Hybrid Nodes シリーズで Cilium の eBPF datapath を扱いましたが�
 
 [^netobserv-readme]: https://github.com/netobserv/netobserv-ebpf-agent
 
-eBPF そのものの概要は、60 秒の解説動画(英語)にまとめています。
-
-https://youtu.be/pDa4_zkVfMo
-
 ## プロジェクトの位置づけ
 
 NetObserv は Red Hat が主導する Kubernetes / OpenShift 向けネットワーク可観測性スイートで、`netobserv-ebpf-agent` はその「センサー」コンポーネントです[^netobserv-readme]。エコシステム全体は複数リポジトリに分かれています。

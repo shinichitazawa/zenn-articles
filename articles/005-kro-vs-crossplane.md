@@ -16,17 +16,38 @@ Kubernetes マニフェストを宣言的に管理していると、「複合リ
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
 :::
 
-本記事の要点を 60 秒にまとめた動画(英語)もあります。
-
-https://youtu.be/2v4lR21VDL0
-
 ## 複合リソース・クラウドリソース管理で直面する問題
 
-Kustomize + ArgoCD で多数のアプリを deploy していると、以下の問題に直面します。
+Kustomize + ArgoCD で多数のアプリをデプロイしていると、以下の問題に直面します。
 
-1. **複合リソースの煩雑さ**: Web app 1 個を deploy するのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA(IAM Roles for Service Accounts)の Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
+1. **複合リソースの煩雑さ**: Web アプリ 1 個をデプロイするのに Deployment + Service + ConfigMap + ServiceAccount + (将来 IRSA(IAM Roles for Service Accounts)の Role + S3 Bucket) を別々の YAML で書き、ApplicationSet で展開する手間
 2. **values の重複**: Helm chart の overlay で同じ値を environment 毎に書き直す
-3. **AWS リソースの管理**: EKS Hybrid Nodes 移行後、IAM Role や S3 Bucket を Kubernetes API で管理したくなる (Terraform から離れたい)。なお EKS Hybrid Nodes への移行は本シリーズ共通の前提で、詳細は別記事(`002-hybrid-vs-outposts-vs-anywhere`)で扱っています
+3. **クラウドリソースだけが GitOps の外にある**: アプリは Kustomize + ArgoCD で宣言していますが、IAM Role や S3 Bucket は Terraform 側に残り、系統が 2 つに分かれます
+
+3 番目について補足します。アプリ側は git を正典として ArgoCD が自動同期し、`selfHeal` を有効にするとクラスタ側で手で変えた差分も git の状態へ戻ります。
+
+> If the `selfHeal` flag is set to true, then the sync will be attempted again after self-heal timeout (5 seconds by default)
+>
+> — [Automated Sync Policy — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
+
+一方でクラウドリソースは Terraform 側にあり、正典・適用の操作・差分の是正がアプリ側と揃いません。
+
+| 観点 | アプリ(Kustomize + ArgoCD) | クラウドリソース(Terraform) |
+|---|---|---|
+| 正典 | git のマニフェスト | git の HCL と [state](https://developer.hashicorp.com/terraform/language/state) |
+| 適用 | ArgoCD が git を監視して自動で同期 | 人が `terraform apply` を実行 |
+| 手で変えた差分 | `selfHeal` で git の状態に戻る | 次の apply まで残る |
+| 依存順序 | [sync wave](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/) で宣言 | 人が適用の順番を守る |
+
+この分かれ方があると、アプリを 1 つ増やすだけでも 2 つのリポジトリを触り、レビューも 2 回に分かれます。IAM Role を先に作ってから pod を起動するという順序も、人が保証することになります。ロールバックも片方ずつです。
+
+そこで、クラウドリソースも Kubernetes API で宣言して ArgoCD の系統に寄せる方法を探すことになります。AWS だけであれば [ACK](https://aws-controllers-k8s.github.io/community/docs/community/overview/) が直接の答えになります。
+
+> AWS Controllers for Kubernetes (ACK) lets you define and use AWS service resources directly from Kubernetes.
+>
+> — [ACK overview](https://aws-controllers-k8s.github.io/community/docs/community/overview/)
+
+ただし ACK は AWS リソースを 1 つずつ宣言する層で、「Deployment と Service と IAM Role をまとめて 1 つの抽象として扱う」ところは担いません。そこを埋めるのが Kro と Crossplane で、本記事の比較対象です
 
 ```mermaid
 flowchart TB
@@ -42,7 +63,7 @@ flowchart TB
 
 ### 仕組み
 
-`ResourceGraphDefinition` (RGD) という CRD(Custom Resource Definition。Kubernetes API に独自リソース型を追加する仕組み)で「高レベル API」を定義し、内部で Kubernetes リソース (or ACK(AWS Controllers for Kubernetes) Controller 経由で AWS リソース) を生成します:
+`ResourceGraphDefinition` (RGD) という CRD(Custom Resource Definition。Kubernetes API に独自リソース型を追加する仕組み)で「高レベル API」を定義し、内部で Kubernetes リソースを生成します。クラウドリソースも、各クラウドのコントローラが提供する CRD(AWS は ACK、GCP は Config Connector、Azure は Azure Service Operator)として同じように生成できます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -72,7 +93,7 @@ spec:
         # ...
 ```
 
-これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースを deploy できます:
+これを apply すると `SimpleWebApp` という新しい CRD が生まれ、ユーザは以下のように 1 つの spec で複合リソースをデプロイできます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -91,7 +112,7 @@ Kro controller が裏で Deployment + Service + ConfigMap を生成します。
 
 - **Kubernetes ネイティブ** (CRD ベース、verifier/JIT 不要)
 - 軽量 (Helm chart 既定の requests は 256m CPU / 128Mi RAM([values.yaml](https://github.com/kubernetes-sigs/kro/blob/main/helm/values.yaml))。筆者環境ではアイドル時 2m CPU / 50Mi RAM で稼働(2026-08 実測))
-- ACK Controllers と組合せで AWS リソースも RGD で管理可能
+- クラウドリソースは各クラウドのコントローラに任せます。AWS は ACK、GCP は Config Connector(KCC)、Azure は Azure Service Operator(ASO)の CRD を RGD に入れて束ねます([Google Cloud の告知記事](https://cloud.google.com/blog/products/containers-kubernetes/introducing-kube-resource-orchestrator)、2026-10 時点で取得)
 - v0.9.x、alpha API なので破壊的変更の可能性あり
 
 ### Install
@@ -115,7 +136,13 @@ helm install kro oci://registry.k8s.io/kro/charts/kro \
 - **Composite Resource (XR)** をユーザが apply します
 
 :::message
-v1 では `CompositeResourceClaim` (XRC) を apply する形でしたが、v2 で Claim は廃止されました。公式は「The new namespaced and cluster scoped XRs in Crossplane v2 don't support claims.」と明記しており、あわせて「Crossplane v2 makes composite resources (XRs) namespaced by default.」と、XR が既定で namespaced になっています（[What's New in v2](https://docs.crossplane.io/latest/whats-new/)、2026-08 時点で取得）。XRD の API は `apiextensions.crossplane.io/v2` で、`scope` の既定が `Namespaced` です。v1 の XRD は `LegacyCluster` scope として後方互換が保たれます。
+Crossplane v1 と v2 では、ユーザが apply するものが変わっています([What's New in v2](https://docs.crossplane.io/latest/whats-new/)、2026-10 時点で取得)。
+
+- v1 では、XR ではなく Claim(`CompositeResourceClaim`、XRC)を apply していました
+- v2 では Claim が廃止されました。公式は「The new namespaced and cluster scoped XRs in Crossplane v2 don't support claims.」と明記しています
+- 代わりに XR を直接 apply します。XR は既定で namespaced です(「Crossplane v2 makes composite resources (XRs) namespaced by default.」)
+- XRD の API は `apiextensions.crossplane.io/v2` で、`scope` の既定は `Namespaced` です
+- v1 の XRD API を使うと `scope` の既定は `LegacyCluster` になり、後方互換が保たれます
 :::
 
 ```yaml
@@ -136,7 +163,7 @@ spec:
 
 - **全クラウド対応** (AWS / GCP / Azure / Kubernetes / GitHub / etc.)
 - Composition で深い抽象化が可能
-- Pod が重い (目安 1GB RAM+。※筆者未検証の概算)、低リソース環境では負荷大
+- Pod が重い (目安 RAM 1Gi(1,024Mi)以上。※筆者未検証の概算)、低リソース環境では負荷大
 - Provider のバージョン管理 (Crossplane core + Provider) が複雑
 
 ## 比較表
@@ -144,12 +171,12 @@ spec:
 | 観点 | Kro | Crossplane |
 |---|---|---|
 | 思想 | Kubernetes ネイティブ RGD で複合リソースをバンドル | クラウド全体を Kubernetes API 化 |
-| 対象 | Kubernetes リソース + (ACK 経由で) AWS リソース | AWS / GCP / Azure / その他全部 |
-| 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1GB+ ※筆者未検証の概算) |
+| 対象 | Kubernetes リソース全般(クラウドは ACK / KCC / ASO 経由) | AWS / GCP / Azure / その他全部 |
+| 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1,024Mi 以上 ※筆者未検証の概算) |
 | API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
 | 学習コスト | 中 (RGD 設計) | 高 (Composition + Provider) |
-| Provider エコシステム | ACK 連携 (まだ少) | 豊富 (公式 + コミュニティ) |
+| Provider エコシステム | 自前では持たない(各クラウドのコントローラに任せる) | 豊富 (公式 + コミュニティ) |
 | 規模 | 小〜中小 | 中小〜大規模 |
 
 ## 選定の指針
@@ -158,15 +185,15 @@ spec:
 
 | 条件 | Kro | Crossplane |
 |---|---|---|
-| RAM の限られた環境(エッジ / SBC) | ○ 軽量 | △ core + Provider で 1GB+(※未検証の概算) |
+| RAM の限られた環境(エッジ / SBC(Single Board Computer。Raspberry Pi などの小型ボード)) | ○ 軽量(アイドル実測 50Mi) | △ core + Provider で 1,024Mi 以上(※未検証の概算) |
 | AWS 中心(ACK と併用) | ○ | 過剰になりやすい |
-| 複数クラウドの統合管理 | 対象外 | ○ 本領 |
+| 複数クラウドの統合管理 | △ クラウドごとにコントローラ(ACK / KCC / ASO)を入れる | ○ 本領 |
 | 学習コスト | Kubernetes YAML の延長(RGD) | Composition の設計が必要 |
 | クラウド以外のリソース(GitHub / Slack 等) | 対象外 | Provider があれば ○ |
 
 Kro を選ぶ理由になりやすい点:
 
-1. **リソース制約**: Crossplane core + Provider AWS で 1GB+ 消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
+1. **リソース制約**: Crossplane core + Provider AWS で RAM 1Gi(1,024Mi)以上を消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
 2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane のマルチクラウド対応は過剰になります
 3. **学習コスト**: Composition の設計には時間がかかります。RGD は Kubernetes YAML の延長で書けます
 4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
@@ -179,7 +206,7 @@ Kro を選ぶ理由になりやすい点:
 
 ## Kro RGD の実装例: IRSA Role
 
-EKS Hybrid Nodes 移行後、IRSA + ACK で IAM Role を Kubernetes API で作ります:
+IRSA(IAM Roles for Service Accounts)で pod に IAM 権限を渡す構成では、その IAM Role を ACK 経由で Kubernetes API から作れます:
 
 ```yaml
 apiVersion: kro.run/v1alpha1
@@ -252,7 +279,7 @@ flowchart TB
 
 - **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に向きます
 - **Crossplane**: マルチクラウド、大規模、エコシステム成熟
-- **AWS 中心 + EKS Hybrid Nodes** の構成では Kro が有力
+- **AWS 中心**の構成では Kro が有力
 
 両者は競合しますが、共存もできます。Kro が alpha のうちは破壊的変更に注意して使います。
 
@@ -268,3 +295,10 @@ flowchart TB
 - [Kro GitHub](https://github.com/kubernetes-sigs/kro)
 - [Crossplane docs](https://docs.crossplane.io/)
 - [ACK Controllers](https://aws-controllers-k8s.github.io/community/)
+- [ACK overview](https://aws-controllers-k8s.github.io/community/docs/community/overview/)
+- [Introducing Kube Resource Orchestrator, or kro — Google Cloud Blog](https://cloud.google.com/blog/products/containers-kubernetes/introducing-kube-resource-orchestrator)
+- [Config Connector (KCC)](https://github.com/GoogleCloudPlatform/k8s-config-connector)
+- [Azure Service Operator (ASO)](https://azure.github.io/azure-service-operator/)
+- [Automated Sync Policy — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
+- [Sync Phases and Waves — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
+- [State — Terraform](https://developer.hashicorp.com/terraform/language/state)
