@@ -554,11 +554,11 @@ NATS には[「Core NATS と JetStream」](https://docs.nats.io/concepts/jetstre
 
 webhook 経由の low-volume event (1 device あたり 90 日に 1 回程度) で、しかも「絶対に取りこぼせない」 use case では、Core NATS の at-most-once は採用候補になりません。
 
-### JetStream の実装上の正体
+### JetStream はどのプロセスで動くか
 
 「JetStream は Core NATS の上の層」というのは概念図上の話で、実装としては `nats-server` という 1 つの Go バイナリの中の subsystem です[^js1]。別プロセスや別 daemon を立てるわけではなく、`nats-server -js -sd /data/jetstream` のように `-js` フラグで有効化すると、内部で disk store と Raft engine が起動します。
 
-公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。「ラッパー」ではなく、Core NATS の subject 機構を transport として借りつつ、broker としての中核機能 (persistence / Raft / consumer state) は独立して持っている「上位層」と理解する方が実態に近いです。
+公式の表現は「a built-in persistence engine」（[NATS 公式ドキュメント](https://docs.nats.io/nats-concepts/jetstream)の "NATS has a built-in persistence engine called JetStream" より。2026-09 取得）。JetStream は、Core NATS の subject 機構を transport として使い、broker としての中核機能 (persistence / Raft / consumer state) は自分で持つ上位層です。
 
 | 機能 | 実装元 |
 |---|---|

@@ -348,7 +348,7 @@ ls: /sys/kernel/btf/vmlinux: No such file or directory
 
 ## EKS Hybrid Nodes との関係
 
-シリーズ本筋の EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能。詳細は別記事 `002-hybrid-vs-outposts-vs-anywhere`)に戻して、NetObserv がこの検証でどこに収まるかを考えます。
+このシリーズで主に扱っている EKS Hybrid Nodes(オンプレの自前マシンを EKS のノードとして参加させる機能。詳細は別記事 `002-hybrid-vs-outposts-vs-anywhere`)に話を戻し、NetObserv がこの検証でどこに収まるかを考えます。
 
 | 状況 | 観測手段 |
 |---|---|
