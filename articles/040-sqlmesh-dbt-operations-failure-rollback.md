@@ -13,7 +13,7 @@ published: false
 - 実行が飛んだとき、一部の区間だけ失敗したとき
 - 上流の過去データが後から訂正されたとき
 - モデルの式・列・型を変えたとき、その変更を戻すとき
-- 履歴を持つ表(SCD Type 2)、外部データの到着待ち、テスト、状態 DB の障害、ツールの更新、大量の再処理
+- 履歴を持つ表(SCD Type 2)、外部データの到着待ち、変更の影響範囲、状態 DB の障害、ツールの更新、大量の再処理
 
 結果は次のとおりです。
 
@@ -186,24 +186,12 @@ def landed(batch: DatetimeRanges, context: ExecutionContext):
 
 dbt には、モデルの実行を到着まで止める仕組みがありません。[`dbt source freshness`](https://docs.getdbt.com/docs/deploy/source-freshness) は入力が古いことを検出しました(`ERROR STALE`)が、`dbt run` はそれとは別に実行され、成功しました。dbt で到着を待つには、オーケストレーター側で鮮度の確認を前段に置く必要があります。
 
-## テストと変更の影響範囲
-
-### ユニットテスト
-
-gold の集計(1 時間ごとの `bytes` の合計)に、同じ内容のテストを書きました。
-
-| | SQLMesh([tests](https://github.com/SQLMesh/sqlmesh/blob/v0.236.2/docs/concepts/tests.md)) | dbt([unit tests](https://docs.getdbt.com/docs/build/unit-tests)) |
-|---|---|---|
-| 実行先 | DuckDB(手元。ウェアハウスに接続しない) | Trino |
-| 所要 | 2.9 秒 | 5.0 秒 |
-| 変更の前に自動で流れるか | `plan` の前に流れ、失敗すると `plan` を止めた | `dbt test` か `dbt build` で流す |
-| 注意した点 | 実行環境のタイムゾーンの影響を受けた。日本時間の端末では区間の境界がずれて失敗し、`TZ=UTC` で通った | microbatch のモデルでは `is_incremental` の上書きが要った。時刻を `TIMESTAMP '…'` の形で書くと NULL になり、文字列で書くと通った |
-
-### 変更の影響範囲
+## 変更の影響範囲
 
 | | SQLMesh | dbt |
 |---|---|---|
 | 変更したモデルと下流 | `plan` が Breaking / Non-breaking と下流を表示 | [`state:modified+`](https://docs.getdbt.com/reference/node-selection/methods) で選べた。本番の manifest を保存しておく必要がある |
+| テストによる関門 | [ユニットテスト](https://github.com/SQLMesh/sqlmesh/blob/v0.236.2/docs/concepts/tests.md)が `plan` の前に自動で流れ、失敗すると `plan` を止めた | [unit tests](https://docs.getdbt.com/docs/build/unit-tests) は `dbt test` か `dbt build` で流す |
 | dev 環境 | 変更したモデルだけを作り、上流は本番の表を共有(5.8 秒) | プロファイルで別のスキーマを用意して作る(今回は未計測) |
 | 本番との差分 | [`table_diff`](https://github.com/SQLMesh/sqlmesh/blob/v0.236.2/docs/guides/tablediff.md)。**時刻の列をキーにすると Trino で失敗**(`Requested timestamp precision '6' exceeds maximum supported precision: 3`)。キーから外すと動き、本番だけの行 49 行と一致した行 83 行を表示 | 差分の機能(compare changes)は [Enterprise プランのみ](https://docs.getdbt.com/docs/deploy/advanced-ci)で、対応するデータベースに Trino は無い(2026-10-10 時点) |
 
