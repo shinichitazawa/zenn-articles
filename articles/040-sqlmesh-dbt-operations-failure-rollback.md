@@ -25,11 +25,11 @@ published: false
 | 項目 | 版・構成 |
 |---|---|
 | SQLMesh | 0.236.3 |
-| dbt | 2.0.5([GitHub のリリース](https://github.com/dbt-labs/dbt-core/releases/tag/v2.0.5)。Rust で書き直された版) |
+| dbt | 2.0.5(Rust で書き直された版。[リリース](https://github.com/dbt-labs/dbt-core/releases/tag/v2.0.5)) |
 | エンジン | DuckDB 1.5.6 |
-| 入力 | 本番から書き出したネットワークのフローの記録 1,970,669 行(フローの開始時刻が 2026-10-04 06:00:00〜11:59:59 UTC のもの) |
+| 入力 | 本番のフローの記録 1,970,669 行 |
 
-版は 2026-10-11 時点のそれぞれの最新の安定版です。本番のエンジンは Trino ですが、dbt 2.0 の[対応表](https://docs.getdbt.com/docs/fusion/supported-features)に Trino が無いので、両方が動く DuckDB で比べました。本番と同じ Trino + Iceberg の上でも、1 つ前の組み合わせ(SQLMesh 0.236.2 / dbt-core 1.12.5 / dbt-trino 1.10.6)で同じ試験をしており、エンジンに固有の結果は後の節に分けて書きます。
+入力は、本番から書き出したネットワークのフローの記録で、フローの開始時刻が 2026-10-04 06:00:00〜11:59:59 UTC のものです。版は 2026-10-11 時点のそれぞれの最新の安定版です。本番のエンジンは Trino ですが、dbt 2.0 の[対応表](https://docs.getdbt.com/docs/fusion/supported-features)に Trino が無いので、両方が動く DuckDB で比べました。本番と同じ Trino + Iceberg の上でも、1 つ前の組み合わせ(SQLMesh 0.236.2 / dbt-core 1.12.5 / dbt-trino 1.10.6)で同じ試験をしており、エンジンに固有の結果は後の節に分けて書きます。
 
 扱わないものは次のとおりです。
 
@@ -48,11 +48,17 @@ published: false
 
 | | SQLMesh | dbt |
 |---|---|---|
-| 増分処理の種類 | `INCREMENTAL_BY_TIME_RANGE` | microbatch(`incremental_strategy='microbatch'`) |
-| 処理する区間の決め方 | 状態 DB に記録した「処理済みの区間」と照らし、まだ処理していない区間を処理する | 実行した時刻の区間と、その前の `lookback` 個の区間を処理する |
-| 処理済みの記録 | 状態 DB(SQLMesh 専用のデータベース。今回は DuckDB、本番は PostgreSQL)に、モデルの版と処理済みの区間を記録する | 持たない。実行のたびに、実行した時刻から区間を計算する |
-| 1 区間の処理 | 区間ごとに書き込む(今回は `batch_size 1` で 1 区間ずつ) | 区間ごとに 1 クエリ(dbt はこれをバッチと呼ぶ)。区間のデータを消してから入れ直す |
-| 変更を本番に入れる手順 | `sqlmesh plan`。変更の種類と作り直す区間を表示し、確認してから適用する | 無い。`dbt run` のときに、そのときのモデルの SQL が使われる |
+| 増分処理の種類 | `INCREMENTAL_BY_TIME_RANGE` | microbatch |
+| 処理する区間 | まだ処理していない区間 | 実行時刻の区間と、その前の `lookback` 個 |
+| 処理済みの区間の記録 | 状態 DB に記録する | 記録しない |
+| 1 区間の処理 | 区間ごとに書き込む | 区間ごとに消して入れ直す |
+| 変更を本番に入れる手順 | `sqlmesh plan` で確認して適用 | 無い(`dbt run` で反映) |
+
+- microbatch は、dbt の incremental モデルに `incremental_strategy='microbatch'` を設定して使います
+- 状態 DB は SQLMesh 専用のデータベースで、モデルの版と処理済みの区間を記録します(今回は DuckDB、本番は PostgreSQL)。SQLMesh はこの記録と照らして、まだ処理していない区間を選びます
+- dbt は記録を持たないので、実行のたびに、実行した時刻から区間を計算します
+- 今回の SQLMesh は `batch_size 1` で 1 区間ずつ書き込みました。dbt は 1 区間を 1 クエリで処理し、これをバッチと呼びます
+- `sqlmesh plan` は、変更の種類と作り直す区間を表示し、確認してから適用します。dbt は `dbt run` のときに、そのときのモデルの SQL をそのまま使います
 
 dbt の microbatch の区間の決め方は、[公式ドキュメント](https://docs.getdbt.com/docs/build/incremental-microbatch)に次のとおり書かれています。
 
@@ -65,8 +71,12 @@ dbt の microbatch の区間の決め方は、[公式ドキュメント](https:/
 | | SQLMesh | dbt |
 |---|---|---|
 | silver | `INCREMENTAL_BY_TIME_RANGE`、`batch_size 1` | microbatch、1 時間の区間、`lookback=1` |
-| gold | `INCREMENTAL_BY_TIME_RANGE` | microbatch(silver の時刻の列を `event_time` に設定) |
-| 実行した時刻の与え方 | `sqlmesh run --end <時刻>`(その時刻までに終わった区間を処理する) | dbt 2.0.5 には実行時刻を外から与えるオプションが無いので、[libfaketime](https://github.com/wolfcw/libfaketime) で dbt から見える時計をずらした |
+| gold | `INCREMENTAL_BY_TIME_RANGE` | microbatch |
+| 実行した時刻の与え方 | `sqlmesh run --end <時刻>` | libfaketime で時計をずらす |
+
+- dbt の gold は、silver の時刻の列を `event_time` に設定しました
+- `sqlmesh run --end <時刻>` は、その時刻までに終わった区間を処理します
+- dbt 2.0.5 には実行時刻を外から与えるオプションが無いので、[libfaketime](https://github.com/wolfcw/libfaketime) で dbt から見える時計をずらしました
 
 失敗は、DuckDB の [`error()`](https://duckdb.org/docs/current/sql/functions/utility.html) 関数(与えたメッセージでエラーを起こす関数)で、9 時台の行だけに起こしました。制御用の表に時間を書くと、その時間の行で `error()` が呼ばれるようにしてあります。
 
@@ -101,10 +111,16 @@ dbt run --select ops_silver+ \
 
 | | SQLMesh 0.236.3 | dbt 2.0.5 |
 |---|---|---|
-| 1 回目の実行 | 9 時台だけ失敗。成功した 5 区間は状態 DB に記録された。gold は上流の silver が揃わないので処理されなかった | silver は 06〜08 時台を処理したところで 9 時台が失敗し、**10・11 時台のバッチは実行されなかった**。gold は上流の失敗でスキップ |
-| 実行結果のファイル(`run_results.json`) | — | **gold の「スキップ」1 件だけ。失敗した silver の記録が無い** |
-| 2 回目の実行(原因を除いた後) | 普通の `sqlmesh run` で 9 時台だけを処理し、そのあと gold を作った | `dbt retry` は gold だけを作り直して成功。**silver の 9〜11 時台は 0 行のまま**(gold もその状態で作られた) |
-| retry せず次の定時実行(12:05) | — | 11・12 時台だけを処理して成功。**9・10 時台は 0 行のまま** |
+| 1 回目の silver | 9 時台だけ失敗 | 9 時台で失敗し、**10・11 時台は実行されない** |
+| 1 回目の gold | 処理されない | スキップ |
+| 失敗の記録 | 成功した 5 区間を状態 DB に記録 | **失敗した silver の記録が無い** |
+| 2 回目(原因を除いた後) | 9 時台を処理し、gold を作る | **silver の 9〜11 時台は 0 行のまま** |
+| retry せず次の定時実行(12:05) | — | **9・10 時台は 0 行のまま** |
+
+- SQLMesh の 1 回目は 9 時台だけが失敗し、gold は上流の silver が揃わないので処理されませんでした。2 回目は普通の `sqlmesh run` で 9 時台だけを処理し、そのあと gold を作りました
+- dbt の 1 回目は、silver を 06〜08 時台まで処理したところで 9 時台が失敗し、10・11 時台のバッチは実行されませんでした。gold は上流の失敗でスキップされました。実行結果のファイル `run_results.json`(下で説明します)には gold の「スキップ」1 件だけがあり、失敗した silver の記録はありませんでした
+- dbt の 2 回目は `dbt retry` で、gold だけを作り直して成功しました。silver の 9〜11 時台は 0 行のままで、gold もその状態で作られました
+- retry せずに次の定時実行(12:05)を迎えた場合は、11・12 時台だけを処理して成功しました
 
 `run_results.json` は、dbt が実行のたびに書き出す、モデルごとの結果(成功・失敗・スキップ)のファイルです。[`dbt retry`](https://docs.getdbt.com/reference/commands/retry) はこのファイルを読み、失敗した箇所からやり直します。
 
@@ -120,9 +136,14 @@ dbt 2.0.5 では、このファイルに失敗した silver が記録されて�
 
 | 操作 | SQLMesh | dbt |
 |---|---|---|
-| 普通の実行 | 訂正を拾わない(silver・gold とも古い値) | 訂正を拾わない |
-| 範囲を指定した作り直し | `sqlmesh plan --restate-model sm.ops_silver --start … --end …` で silver が直り、**gold も自動で作り直された** | `dbt run --event-time-start … --event-time-end …` で直る。silver だけを選ぶと gold は古い値のまま。gold まで直すには選択に `+`(`--select ops_silver+`)を付ける |
-| 同じ範囲を 2 回流す | 件数・値とも変わらない(重複しない) | 件数・値とも変わらない(重複しない) |
+| 普通の実行 | 訂正を拾わない | 訂正を拾わない |
+| 範囲を指定した作り直し | 直る。**gold も自動で作り直す** | 直る。gold は `+` で選んだときだけ |
+| 同じ範囲を 2 回流す | 重複しない | 重複しない |
+
+- 普通の実行では、どちらも silver・gold とも古い値のままでした
+- SQLMesh は `sqlmesh plan --restate-model sm.ops_silver --start … --end …` で silver が直り、gold も自動で作り直されました
+- dbt は `dbt run --event-time-start … --event-time-end …` で直りました。silver だけを選ぶと gold は古い値のままで、gold まで直すには選択に `+`(`--select ops_silver+`)を付けます
+- 同じ範囲を 2 回流しても、どちらも件数・値とも変わりませんでした
 
 SQLMesh では、処理済みの区間を作り直すことを restatement と呼びます([plans の説明](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/plans.md))。作り直しが下流に伝わるのも、同じページの説明どおりでした。
 
@@ -145,7 +166,9 @@ silver の `bytes` を `bytes * 8`(バイトからビットへの換算)に変�
 | | SQLMesh | dbt |
 |---|---|---|
 | 変更の分類 | silver は Breaking、gold は Indirect Breaking | なし |
-| 反映 | silver の 6 区間と gold を作り直し、全期間が新しい式になった | 12:05 の実行で処理した 11 時台だけが新しい式。**06〜10 時台は古い式のまま、実行は成功** |
+| 反映 | 全期間が新しい式 | 11 時台だけが新しい式。**06〜10 時台は古い式のまま** |
+
+SQLMesh は silver の 6 区間と gold を作り直しました。dbt は 12:05 の実行で処理した 11 時台だけが新しい式になり、実行は成功しました。
 
 ### 列の削除と型の変更
 
@@ -153,8 +176,13 @@ silver から `packets` 列(gold では使っていない列)を消す変更と�
 
 | 変更 | SQLMesh | dbt `ignore`(既定) | dbt `fail` | dbt `sync_all_columns` |
 |---|---|---|---|---|
-| 列の削除 | Breaking と判定し、全区間を作り直した | 失敗(データベースのエラー。Trino で試したときは `Column 'packets' cannot be resolved`) | 失敗(dbt が列の違いを検出し、Compilation Error で止まる) | 成功。列を表から削除したが、**`bytes` の型が BIGINT から INTEGER に変わった** |
-| 型の変更 | Breaking と判定し、全区間を作り直した | **成功するが、表の型は BIGINT のまま。警告なし** | 失敗(同上) | 成功。`bytes` は DOUBLE になったが、**変えていない `packets` が BIGINT から INTEGER に変わった** |
+| 列の削除 | 全区間を作り直す | 失敗 | 失敗 | 成功。**変えていない `bytes` が INTEGER に** |
+| 型の変更 | 全区間を作り直す | 成功。**表の型は BIGINT のまま** | 失敗 | 成功。**変えていない `packets` が INTEGER に** |
+
+- SQLMesh は、どちらの変更も Breaking と判定し、全区間を作り直しました
+- `ignore` の列の削除は、データベースのエラーで失敗しました(Trino で試したときは `Column 'packets' cannot be resolved`)。型の変更は成功しましたが、表の型は BIGINT のままで、警告はありませんでした
+- `fail` は、dbt が列の違いを検出し、Compilation Error で止まりました
+- `sync_all_columns` は、列の削除では列を表から削除しましたが、`bytes` の型が BIGINT から INTEGER に変わりました。型の変更では `bytes` が DOUBLE になりましたが、変えていない `packets` が BIGINT から INTEGER に変わりました
 
 `sync_all_columns` で INTEGER になった列は、今回のデータでは値が収まりました(`bytes` の最大は 165,045,979)。INTEGER の上限(2,147,483,647)を超える値が来ると書き込めません。1 つ前の dbt-core 1.12.5(Trino)の `sync_all_columns` では、変えていない列の型は変わりませんでした。
 
@@ -166,8 +194,10 @@ dbt では、どの設定でも計算し直されるのは処理した区間だ�
 
 | | SQLMesh | dbt |
 |---|---|---|
-| 方法 | モデルを元に戻して `sqlmesh plan` | モデルを元に戻して、全期間を範囲指定で流すか `dbt run --full-refresh` |
+| 方法 | モデルを元に戻して `sqlmesh plan` | モデルを元に戻して、全期間を流し直す |
 | 作り直した区間 | **0** | 全期間(6 区間) |
+
+dbt で全期間を流し直す方法は、範囲を指定した `dbt run` か `dbt run --full-refresh` です。
 
 SQLMesh は、モデルを変えるたびに新しい版の物理表を作り、本番の名前の view をその物理表に向けます。[plans の説明](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/plans.md)には次のとおり書かれています。
 
@@ -187,14 +217,14 @@ SCD Type 2 は、行の値が変わるたびに古い行を残し、新しい行
 
 小さな「担当チームの表」(id、担当、更新時刻)に、変更・削除・追加を 1 回ずつ入れました。SQLMesh は `SCD_TYPE_2_BY_TIME`、dbt は [snapshot](https://docs.getdbt.com/docs/build/snapshots)(更新時刻の列で変化を見る timestamp 方式)です。
 
-| 場面 | SQLMesh の有効開始・有効終了 | dbt の有効開始・有効終了 |
+| 場面 | SQLMesh | dbt |
 |---|---|---|
-| 最初からある行 | 有効開始は `1970-01-01` | 有効開始は元の行の更新時刻 |
-| 担当を変えた行 | 旧行の有効終了を変更時刻にし、新行をその時刻から | 同じ |
-| 削除した行 | 有効のまま(既定の `invalidate_hard_deletes: false`) | 有効のまま(既定の [`hard_deletes: ignore`](https://docs.getdbt.com/reference/resource-configs/hard-deletes)) |
-| 後から追加した行 | 有効開始は `1970-01-01` | 有効開始はその行の更新時刻 |
+| 最初からある行の有効開始 | `1970-01-01` | 元の行の更新時刻 |
+| 担当を変えた行 | 旧行を変更時刻で終え、新行をその時刻から有効にする | 同じ |
+| 削除した行 | 有効のまま | 有効のまま |
+| 後から追加した行の有効開始 | `1970-01-01` | その行の更新時刻 |
 
-削除を記録しないのはどちらも既定の動作で、設定で変えられます。違いは有効開始の決め方で、SQLMesh は初めて現れた行を「最初から有効」として扱いました。
+削除した行が有効のままなのは、どちらも既定の設定(SQLMesh の `invalidate_hard_deletes: false`、dbt の [`hard_deletes: ignore`](https://docs.getdbt.com/reference/resource-configs/hard-deletes))によるもので、設定で変えられます。違いは有効開始の決め方で、SQLMesh は初めて現れた行を「最初から有効」として扱いました。
 
 ## 外部データの到着を待つ
 
@@ -216,9 +246,12 @@ def landed(batch: DatetimeRanges, context: ExecutionContext):
 
 | | 2 回目の実行の後に入っていた区間 |
 |---|---|
-| SQLMesh(signal あり) | 06〜10 時台。11 時台は、12:00 以降の行が入るまで処理を待つ |
-| SQLMesh(signal なし) | 06〜08 時台だけ。1 回目に 09〜11 時台を 0 行のまま処理済みにしたので、あとから入った行は入らない |
-| dbt microbatch | 06〜08 時台と 11 時台。09・10 時台は入らない |
+| SQLMesh(signal あり) | 06〜10 時台 |
+| SQLMesh(signal なし) | 06〜08 時台 |
+| dbt microbatch | 06〜08 時台と 11 時台 |
+
+- signal ありでは、11 時台は 12:00 以降の行が入るまで処理を待ちます
+- signal なしでは、1 回目に 09〜11 時台を 0 行のまま処理済みにしたので、あとから入った行は入りませんでした
 
 dbt には、モデルの実行を入力の到着まで止める仕組みがありません。[`dbt source freshness`](https://docs.getdbt.com/docs/deploy/source-freshness)(入力の最終更新時刻を確かめるコマンド)は入力が古いことを検出しました(`Stale source src.land (last updated 2h 59m ago)`)が、`dbt run` はそれとは別に実行され、成功しました。
 
@@ -230,10 +263,16 @@ dbt 2.0 では、source の `loaded_at_field`(鮮度を測る時刻の列)を、
 
 | | SQLMesh | dbt |
 |---|---|---|
-| 変更したモデルと下流の特定 | `plan` が変更の分類と下流のモデルを表示 | [`state:modified+`](https://docs.getdbt.com/reference/node-selection/methods) で選べた。比較の元として、本番の [manifest](https://docs.getdbt.com/reference/artifacts/manifest-json)(プロジェクトの全モデルの定義を書き出したファイル)を保存しておく必要がある |
-| 変更前のテスト | [ユニットテスト](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/tests.md)が `plan` の前に自動で流れ、失敗すると `plan` を止めた | [unit tests](https://docs.getdbt.com/docs/build/unit-tests) は `dbt test` か `dbt build` で流す |
-| 変更を試す環境 | `sqlmesh plan dev` で、変更したモデルだけを作り、上流は本番の表を参照 | プロファイルで別のスキーマを用意して作る(今回は未計測) |
-| 本番との表の差分 | [`table_diff`](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/guides/tablediff.md) で比較できた。gold から外部との通信を除く変更を dev に入れて比べると、本番にだけある行 294 行と、両方で一致した行 482 行を表示 | 差分の機能(compare changes)は [Enterprise プランのみ](https://docs.getdbt.com/docs/deploy/advanced-ci)で、自前の構成には無い |
+| 変更したモデルと下流の特定 | `plan` が表示する | `state:modified+` で選べる |
+| 変更前のテスト | `plan` の前に自動で流れる | `dbt test` か `dbt build` で流す |
+| 変更を試す環境 | `sqlmesh plan dev` | 別のスキーマを用意する(未計測) |
+| 本番との表の差分 | `table_diff` | Enterprise プランのみ |
+
+- SQLMesh の `plan` は、変更の分類と下流のモデルを表示します
+- dbt の [`state:modified+`](https://docs.getdbt.com/reference/node-selection/methods) は、比較の元として本番の [manifest](https://docs.getdbt.com/reference/artifacts/manifest-json)(プロジェクトの全モデルの定義を書き出したファイル)を保存しておく必要があります
+- SQLMesh の[ユニットテスト](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/tests.md)は `plan` の前に自動で流れ、失敗すると `plan` を止めました。dbt の [unit tests](https://docs.getdbt.com/docs/build/unit-tests) は `dbt test` か `dbt build` で流します
+- `sqlmesh plan dev` は、変更したモデルだけを作り、上流は本番の表を参照します。dbt はプロファイルで別のスキーマを用意して作ります(今回は計測していません)
+- SQLMesh の [`table_diff`](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/guides/tablediff.md) で、gold から外部との通信を除く変更を dev に入れて本番と比べると、本番にだけある行 294 行と、両方で一致した行 482 行を表示しました。dbt の差分の機能(compare changes)は [Enterprise プランのみ](https://docs.getdbt.com/docs/deploy/advanced-ci)で、自前の構成には無い機能です
 
 ## 状態 DB の障害とツールの更新
 
@@ -264,12 +303,19 @@ SQLMesh の状態 DB の接続先を、存在しないポートに向けて実�
 
 | 場面 | 起きたこと |
 |---|---|
-| 区間ごとの作り直しを並行に流す | SQLMesh(`batch_size 1`)も dbt(`concurrent_batches`)も、同じ Iceberg の表への削除どうしが競合して `ICEBERG_COMMIT_ERROR` で失敗した。SQLMesh は並行数の上限 [`batch_concurrency`](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/models/overview.md) を 1 にすると成功した |
-| SQLMesh の restatement が途中で失敗 | 状態 DB は「処理済み」のまま残り、次の普通の実行は何もしなかった。restatement をもう一度流す必要がある |
-| dbt の `--full-refresh` | 古い表を退避する先の名前 `<モデル名>__dbt_backup` が、Lakekeeper の soft-delete(削除した表の名前を 7 日間残す設定)で残っていた名前とぶつかって失敗した。gold は本体が消え、退避用の表と一時表だけが残った。範囲指定で流す方法は表の名前を変えないので問題なかった |
-| SQLMesh の `table_diff` | `timestamp(6)`(マイクロ秒の精度の時刻)の列を比較のキーにすると失敗した(`Requested timestamp precision '6' exceeds maximum supported precision: 3`) |
-| SQLMesh のユニットテスト | タイムゾーン付きの時刻の列を使うと、テストを実行する端末のタイムゾーンの影響を受けた。日本時間の端末では区間の境界がずれて失敗し、`TZ=UTC` で通った |
-| Iceberg の保守 | どちらのツールも、小さなファイルをまとめる・古いスナップショットを消すことはしない。SQLMesh はロールバック用に前の版の物理表を残し、silver で 4 版(各 197 万行)が残った |
+| 区間ごとの作り直しを並行に流す | どちらも `ICEBERG_COMMIT_ERROR` で失敗 |
+| SQLMesh の restatement が途中で失敗 | 状態 DB は「処理済み」のまま |
+| dbt の `--full-refresh` | 退避用の表の名前がぶつかって失敗 |
+| SQLMesh の `table_diff` | `timestamp(6)` の列をキーにすると失敗 |
+| SQLMesh のユニットテスト | 端末のタイムゾーンで結果が変わる |
+| Iceberg の保守 | どちらもしない |
+
+- **並行の作り直し**: SQLMesh(`batch_size 1`)も dbt(`concurrent_batches`)も、同じ Iceberg の表への削除どうしが競合して失敗しました。SQLMesh は並行数の上限 [`batch_concurrency`](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/models/overview.md) を 1 にすると成功しました
+- **restatement の途中の失敗**: 状態 DB に「処理済み」が残ったので、次の普通の実行は何もしませんでした。restatement をもう一度流す必要があります
+- **`--full-refresh`**: dbt が古い表を退避する先の名前 `<モデル名>__dbt_backup` が、Lakekeeper の soft-delete(削除した表の名前を 7 日間残す設定)で残っていた名前とぶつかりました。gold は本体が消え、退避用の表と一時表だけが残りました。範囲を指定して流す方法は表の名前を変えないので、問題ありませんでした
+- **`table_diff`**: `timestamp(6)`(マイクロ秒の精度の時刻)の列をキーにすると、`Requested timestamp precision '6' exceeds maximum supported precision: 3` で失敗しました
+- **ユニットテスト**: タイムゾーン付きの時刻の列を使うと、日本時間の端末では区間の境界がずれて失敗し、`TZ=UTC` で通りました
+- **Iceberg の保守**: どちらのツールも、小さなファイルをまとめる・古いスナップショットを消すことはしません。SQLMesh はロールバック用に前の版の物理表を残すので、silver で 4 版(各 197 万行)が残りました
 
 ## まとめ
 

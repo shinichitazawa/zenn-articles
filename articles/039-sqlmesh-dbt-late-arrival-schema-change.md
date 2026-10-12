@@ -31,9 +31,11 @@ silver は増分処理で作っています。増分処理とは、毎回すべ�
 | 項目 | 版・構成 |
 |---|---|
 | SQLMesh | 0.236.3 |
-| dbt | 2.0.5([GitHub のリリース](https://github.com/dbt-labs/dbt-core/releases/tag/v2.0.5)。Rust で書き直された版) |
+| dbt | 2.0.5(Rust で書き直された版。[リリース](https://github.com/dbt-labs/dbt-core/releases/tag/v2.0.5)) |
 | エンジン | DuckDB 1.5.6 |
-| 入力 | 本番の bronze から書き出したフローの記録 1,970,669 行(フローの開始時刻が 2026-10-04 06:00:00〜11:59:59 UTC のもの) |
+| 入力 | 本番の bronze のフローの記録 1,970,669 行 |
+
+入力は、本番の bronze から書き出したフローの記録で、フローの開始時刻が 2026-10-04 06:00:00〜11:59:59 UTC のものです。
 
 本番のエンジンは Trino ですが、dbt 2.0 の[対応表](https://docs.getdbt.com/docs/fusion/supported-features)に Trino は無いので(2026-10-11 時点)、両方が動く DuckDB に移して比べました。同じ試験を本番と同じ Trino 483 の上でも、1 つ前の組み合わせ(dbt-core 1.12.5 / dbt-trino 1.10.6、SQLMesh 0.236.2)で行い、取りこぼした行数はすべての区間で一致しました。
 
@@ -80,11 +82,13 @@ lookback は、終わった区間をあとの実行でもう一度作り直す�
 
 | 方式 | 何をするか |
 |---|---|
-| SQLMesh、lookback なし(本番と同じ) | 実行のたびに、まだ処理していない区間を処理する |
+| SQLMesh、lookback なし(本番と同じ) | まだ処理していない区間を処理する |
 | SQLMesh、`lookback 1` | 上に加えて、その 1 つ前の区間を作り直す |
 | dbt microbatch、lookback 既定(1) | 実行時刻の区間と、その 1 つ前の区間を処理する |
 | dbt microbatch、`lookback=2` | 実行時刻の区間と、その 2 つ前までの区間を処理する |
-| dbt の従来の増分(watermark 方式) | 出力の表にある最大の時刻より新しい行だけを追記する(`WHERE time_flow_start > (SELECT max(time_flow_start) FROM {{ this }})`) |
+| dbt の従来の増分(watermark 方式) | 出力の最大の時刻より新しい行だけを追記する |
+
+watermark 方式の条件は `WHERE time_flow_start > (SELECT max(time_flow_start) FROM {{ this }})` です。
 
 たとえば 09:00 の実行では、各方式が処理する区間は次のようになります。
 
@@ -126,10 +130,13 @@ dbt 2.0.5 には実行時刻を外から与えるオプションが無いので�
 
 ### lookback の既定値と数え方
 
-| | 既定値 | lookback が数える区間 | 毎時 0 分の実行で、終わったばかりの区間を次の実行でも作り直す設定 |
+| | 既定値 | lookback が数える区間 | 終わったばかりの区間を次の実行でも作り直す設定 |
 |---|---|---|---|
-| SQLMesh | なし([ソース](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/sqlmesh/core/model/kind.py)で `lookback: Optional[...] = None`) | 処理する区間より前の区間 | `lookback 1` |
+| SQLMesh | なし | 処理する区間より前の区間 | `lookback 1` |
 | dbt microbatch | 1 | 実行時刻の区間より前の区間 | `lookback=2` |
+
+- SQLMesh の既定値は、[ソース](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/sqlmesh/core/model/kind.py)の `lookback: Optional[...] = None` です
+- 右の列は、毎時 0 分に実行したとき、終わったばかりの区間を次の実行でも作り直すのに必要な設定です
 
 SQLMesh の定義は、[モデルの設定項目の説明](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/models/overview.md)では次のとおりです。
 
@@ -156,11 +163,16 @@ watermark 方式は、区間で区切らず、「出力の表にある最大の�
 
 | 手順 | 結果 |
 |---|---|
-| SQLMesh、`sqlmesh run` だけ | **変更は反映されない**。本番に入れた前の版のまま実行され、列は増えない |
-| SQLMesh、`sqlmesh plan`(今回は `--auto-apply` で確認を省いて適用) | `Directly Modified: sm.late_lb1 (Non-breaking)` と表示。適用すると処理済みの全区間(06:00〜12:59)を作り直し、1,970,669 行すべてに値が入った |
-| SQLMesh、`sqlmesh plan --forward-only` | 列を追加し、過去の区間は作り直さない。過去の行の新しい列は NULL |
-| dbt、`on_schema_change` 既定(`ignore`)で `dbt run` | 実行は成功。**新しい列は表に現れず、警告もない** |
-| dbt、`on_schema_change: append_new_columns` で `dbt run` | 列が追加される。値が入るのは処理した区間だけで、それより前の行は NULL |
+| SQLMesh、`sqlmesh run` だけ | **変更は反映されない** |
+| SQLMesh、`sqlmesh plan` | Non-breaking と表示。適用すると全区間を作り直す |
+| SQLMesh、`sqlmesh plan --forward-only` | 列を追加。過去の行の新しい列は NULL |
+| dbt、`on_schema_change` 既定(`ignore`)で `dbt run` | 成功。**新しい列は表に現れず、警告もない** |
+| dbt、`on_schema_change: append_new_columns` で `dbt run` | 列を追加。処理した区間より前の行は NULL |
+
+- `sqlmesh run` だけでは、本番に入れた前の版のまま実行され、列は増えませんでした
+- `sqlmesh plan`(今回は `--auto-apply` で確認を省いて適用)は `Directly Modified: sm.late_lb1 (Non-breaking)` と表示しました。適用すると処理済みの全区間(06:00〜12:59)を作り直し、1,970,669 行すべてに値が入りました
+- `--forward-only` は、過去の区間を作り直しません
+- `append_new_columns` で値が入るのは、処理した区間だけでした
 
 Non-breaking は、SQLMesh が変更を分類する種類の 1 つです。[plans の説明](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/concepts/plans.md)によると、Non-breaking に分類されたモデルは作り直され、下流のモデルは作り直されません。列の追加が典型例として挙がっています。
 
@@ -182,8 +194,11 @@ dbt で過去の行まで埋めるには、`--full-refresh` か、範囲を指�
 
 | | 既定の普通の実行 | 列の追加を検出する方法 |
 |---|---|---|
-| SQLMesh | **新しい列を無視**。警告なし。`sqlmesh plan` も「No changes」 | 上流の表の定義を YAML に書き出しておき(`sqlmesh create_external_models`)、列が増えた後に作り直して `plan` を流すと、モデルが Breaking の変更として表示された |
-| dbt | **新しい列を無視**。警告なし | `on_schema_change: fail` にすると、実行が失敗して止まる。`append_new_columns` / `sync_all_columns` では列が増え、値は処理した区間だけに入る |
+| SQLMesh | **新しい列を無視**。警告なし | 上流の表の定義を YAML に書き出しておく |
+| dbt | **新しい列を無視**。警告なし | `on_schema_change: fail` で失敗させる |
+
+- SQLMesh は、普通の実行だけでなく `sqlmesh plan` も「No changes」でした。上流の表の定義を YAML に書き出しておき(`sqlmesh create_external_models`)、列が増えた後に作り直して `plan` を流すと、モデルが Breaking の変更として表示されました
+- dbt は `on_schema_change: fail` にすると、実行が失敗して止まります。`append_new_columns` / `sync_all_columns` では列が増え、値は処理した区間だけに入ります
 
 上流の変化に対しては、どちらも既定では何もしません。SQLMesh の YAML の定義を使うと `SELECT *` がその定義の列に展開されるので、YAML を作り直したときに展開結果の変化として検出されます。
 
