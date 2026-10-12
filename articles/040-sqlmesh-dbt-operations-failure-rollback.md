@@ -245,9 +245,11 @@ SCD Type 2 は、行の値が変わるたびに古い行を残し、新しい行
 
 **SQLMesh は signals で、入力が揃うまで区間の処理を待たせられました。dbt には実行を止める仕組みが無く、`dbt source freshness` は入力の古さを検出するだけでした。**
 
-入力の 06〜08 時台だけを先に入れて 11 時台まで処理する実行をしたあと、09〜11 時台を入れて、もう一度実行しました。上流のデータがそろう前に区間を処理済みにしてしまうと、あとから入ったデータを取りこぼします。
+上流のデータが揃う前に区間を処理済みにすると、あとから入ったデータを取りこぼします。これを試すため、1 回目は入力の表 `src.land` に 06〜08 時台の行だけを入れて、11 時台までを処理する実行(SQLMesh は `sqlmesh run --end 12:00`、dbt は 11:59 に実行)をしました。次に 09〜11 時台の行を入れて、もう一度実行しました(SQLMesh は同じ `--end 12:00`、dbt は 12:05)。
 
-SQLMesh は [signals](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/guides/signals.md) という仕組みで、区間ごとに「処理してよいか」を返す関数をモデルに付けられます。入力の最新時刻より前に終わる区間だけを返す関数を書きました。
+SQLMesh の [signals](https://github.com/SQLMesh/sqlmesh/blob/v0.236.3/docs/guides/signals.md) は、区間を処理する前に呼ばれる関数をモデルに付ける仕組みです。関数は、これから処理する区間の一覧(開始と終了の組)を受け取り、処理してよい区間だけを返します(`True` / `False` で全体をまとめて返すこともできます)。
+
+今回は、入力の表に入っている行のうち最も新しい開始時刻(`max(time_flow_start)`)を「入力がどこまで届いたか」の目安にしました。区間の終わりがその時刻以前の区間だけを返します。1 回目の実行では、入力の最も新しい行が 08:59 台なので、終わりが 08:00 の 07 時台までを処理し、08 時台(終わりが 09:00)より後は処理せずに待ちます。
 
 ```python
 from sqlmesh import signal, DatetimeRanges, ExecutionContext
@@ -260,6 +262,8 @@ def landed(batch: DatetimeRanges, context: ExecutionContext):
         return False
     return [(s, e) for s, e in batch if e.timestamp() <= newest]
 ```
+
+この判定は、行がおおむね時刻の順に入ることを前提にしています。[前回の記事](https://zenn.dev/shinichitazawa/articles/039-sqlmesh-dbt-late-arrival-schema-change)で測ったとおり、本番の取り込みは開始時刻の順にならず、受け取った行を 60 秒ごとにまとめて書き込みます。本番で使うなら、区間の終わりに数分の余裕を足して判定する必要があると考えています(本番では未検証)。
 
 | | 2 回目の実行の後に入っていた区間 |
 |---|---|
