@@ -1,5 +1,5 @@
 ---
-title: "「S3 互換」は何が互換なのか — AWS が決める API 標準と 2025 年の互換性破壊"
+title: "「S3 互換」が指す範囲と、AWS SDK の更新で互換性が崩れる仕組み"
 emoji: "🪣"
 type: "tech"
 topics: ["s3", "aws", "objectstorage", "sakuracloud", "minio"]
@@ -29,10 +29,15 @@ S3 の API は、AWS 自身が詳しく公開しています。人が読む形�
 
 | 項目 | S3 の場合 |
 |---|---|
-| 誰が決めるか | AWS が単独で決める。IETF RFC のような、標準化団体で合意する手続きはない |
-| 変更 | AWS の判断で変わる(§4 の 2025 年の事例) |
-| 互換実装への約束 | ない。公開されている定義は AWS 自身のサービスの説明で、他社の実装との互換性を保証するものではない |
-| 「S3 互換」の認定 | ない。互換を名乗るのは各社の自己申告(§3.1) |
+| 仕様を決める者 | AWS が単独で決める |
+| 仕様の変更 | AWS の判断で変わる |
+| 互換実装への約束 | ない |
+| 「S3 互換」の認定 | ない |
+
+- IETF RFC のように、標準化団体で合意する手続きはありません
+- 変更の例は、§4 の 2025 年の事例です
+- 公開されている定義は AWS 自身のサービスの説明で、他社の実装との互換性を保証するものではありません
+- 互換を名乗るのは各社の自己申告です(§3.1)
 
 にもかかわらず S3 API は事実上の標準になりました。このことは、**競合他社の公式ドキュメントが自ら「S3 互換」を謳っている**ことから確認できます:
 
@@ -61,7 +66,7 @@ XML レスポンス(JSON ではなく、2006 年の設計のまま)と、`x-amz-
 
 現行の認証は **AWS Signature Version 4**。リクエストを正規化(canonical request。メソッド・パス・クエリ・ヘッダ・ペイロードのハッシュを決められた順序と書式で 1 つの文字列に整形したもの)し、日付・リージョン・サービス名から導出した鍵で HMAC-SHA256 署名して `Authorization` ヘッダに載せます。互換ストレージを名乗るなら[この署名検証の実装が事実上必須](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html)で、旧 SigV2 のみ対応の実装は現代のクライアントから使えません。
 
-さくらのオブジェクトストレージも SigV4 を実装しているからこそ、`aws` CLI・`s5cmd`・boto3・n8n の S3 ノードが `--endpoint-url` の差し替えだけで動きます。
+さくらのオブジェクトストレージも SigV4 を実装しているので、SigV4 で署名するクライアントなら、エンドポイントの差し替えだけで使える作りです。筆者が実際にさくらで使っているのは `s5cmd`(`--endpoint-url` を指定)で、aws CLI・boto3・n8n の S3 ノードでは確かめていません。
 
 ### 2.3 アドレッシング: virtual-hosted vs path-style
 
@@ -83,7 +88,7 @@ AWS は 2019 年に path-style の廃止を予告して利用者からの反対�
 
 ## 3. GitHub で見る「S3 互換」の生態系
 
-### 3.1 公式の適合試験はなく、非公式の互換性テストが複数ある
+### 3.1 互換性テストの位置づけ
 
 AWS は「S3 互換」を認定する適合試験を用意していません。代わりに、実装側のプロジェクトが作った非公式の互換性テストが使われています。
 
@@ -99,10 +104,14 @@ Ceph 以外の実装での使われ方を各リポジトリで確認しました
 
 | 実装 | 互換性テストの扱い |
 |---|---|
-| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | s3-tests を実行するための Dockerfile(`docker/Dockerfile.s3tests`)を持つ |
-| [RustFS](https://github.com/rustfs/rustfs) | s3-tests を CI で実行し、通るテストと通らないテストの一覧から互換表(`docs/architecture/s3-compatibility-matrix.md`)を作っている |
-| [Garage](https://github.com/deuxfleurs-org/garage) | テスト方針の文書(`doc/book/working-documents/testing-strategy.md`)で、互換性の試験として ceph/s3-tests と [minio/mint](https://github.com/minio/mint) を挙げている |
-| [MinIO](https://github.com/minio/minio) | 自前の試験 mint を持つ |
+| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | s3-tests 用の Dockerfile を持つ |
+| [RustFS](https://github.com/rustfs/rustfs) | CI で s3-tests を実行 |
+| [Garage](https://github.com/deuxfleurs-org/garage) | s3-tests と mint を挙げる |
+| [MinIO](https://github.com/minio/minio) | 自前の試験 mint |
+
+- SeaweedFS: `docker/Dockerfile.s3tests`
+- RustFS: 通るテストと通らないテストの一覧から、互換表(`docs/architecture/s3-compatibility-matrix.md`)を作っています
+- Garage: テスト方針の文書(`doc/book/working-documents/testing-strategy.md`)で、ceph/s3-tests と [minio/mint](https://github.com/minio/mint) を挙げています
 
 s3-tests は Ceph 以外でも使われる代表的な試験ですが、唯一ではなく、どれも公式ではありません。どの試験に通れば「S3 互換」と名乗れる、という基準もありません。
 
@@ -112,12 +121,15 @@ s3-tests は Ceph 以外でも使われる代表的な試験ですが、唯一�
 
 | 実装 | 言語 / ライセンス | 特徴 |
 |---|---|---|
-| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞でしたが、リポジトリはアーカイブされ、README に「THIS REPOSITORY IS NO LONGER MAINTAINED.」とあります(2026-10 時点で取得)。最後のリリースのノートはコンテナについて「please clone the source and build the latest container」としていて、公式のイメージは配布されていません。4 実装を実際に試した結果は別記事 `039-s3-compatible-oss-on-k3s` |
-| [RustFS](https://github.com/rustfs/rustfs) | Rust / Apache-2.0 | Apache-2.0 の分散型。s3-tests を CI で流して互換表を公開(§3.1) |
-| [Ceph RGW](https://github.com/ceph/ceph) | C++ / LGPL | s3-tests 本家。互換性は最も広いが運用は重量級 |
-| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Go / Apache-2.0 | 小さいファイル大量に強い設計。S3 API はサブセット |
-| [Garage](https://git.deuxfleurs.fr/Deuxfleurs/garage) | Rust / AGPLv3 | 自宅・エッジ向けの軽量分散。地理分散前提の設計 |
-| [LocalStack](https://github.com/localstack/localstack) | Python | テスト用エミュレータとしての S3 実装 |
+| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 保守は終了(アーカイブ) |
+| [RustFS](https://github.com/rustfs/rustfs) | Rust / Apache-2.0 | 消失訂正符号の分散型 |
+| [Ceph RGW](https://github.com/ceph/ceph) | C++ / LGPL | s3-tests の本家 |
+| [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Go / Apache-2.0 | 小さいファイルが大量の用途向け |
+| [Garage](https://git.deuxfleurs.fr/Deuxfleurs/garage) | Rust / AGPLv3 | 小規模・地理分散向け |
+| [LocalStack](https://github.com/localstack/localstack) | Python | テスト用のエミュレータ |
+
+- MinIO のリポジトリの README は「THIS REPOSITORY IS NO LONGER MAINTAINED.」としています(2026-10 時点で取得)。最後のリリースのノートは、コンテナについて「please clone the source and build the latest container」としていて、公式のイメージは配布されていません
+- 4 つの実装(SeaweedFS・RustFS・Garage・MinIO)を k3s で実際に試した結果は、別記事 `041-s3-compatible-oss-on-k3s` で扱っています
 
 商用の互換サービス(Cloudflare R2、Backblaze B2、Wasabi、**さくらのオブジェクトストレージ**等)も、対応する API の一覧をそれぞれの公式ドキュメントで公開しています(§1 の一覧)。各社がどの試験で互換性を確かめているかは公開されておらず、筆者は確認できていません。
 
@@ -135,7 +147,7 @@ s3-tests は Ceph 以外でも使われる代表的な試験ですが、唯一�
 
 ## 5. 実務ガイド: 互換ストレージと付き合う設定
 
-さくらのオブジェクトストレージ + `s5cmd`/boto3/n8n での実運用から:
+さくらのオブジェクトストレージを `s5cmd` で使っている運用と、別記事 `041-s3-compatible-oss-on-k3s` の試験(4 つの OSS 実装に boto3 で 20 項目)から、設定を 3 つ挙げます。2) は、041 の試験で Garage のマルチパートアップロードが既定のチェックサムでは失敗し、`when_required` で成功したことが根拠です。さくらでは確かめていません:
 
 ```bash
 # 1) エンドポイントを明示(これが「S3 互換」利用の本体)
@@ -163,7 +175,7 @@ export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 - 認証の本体は SigV4。エンドポイント差し替え + path-style + SigV4 が「S3 互換」利用の 3 要素
 - 互換性はグラデーション。公式の適合試験はなく、Ceph の s3-tests(2026-10 に Ceph 本体へ移転)や MinIO の mint などの非公式の試験があるだけです。実装ごとの対応 API の差は、各社の公式ドキュメントで確認する必要があります
 - 2025 年のチェックサム問題が示す通り、互換性は「維持し続ける作業」。SDK 更新は互換ストレージ利用者にとって破壊的変更になり得ます
-- ホスト名の「s3」はプロトコル名。`s3.isk01.sakurastorage.jp` は AWS と無関係のさくらのサービスであり、それでも aws CLI がそのまま使えるのがこの生態系の到達点
+- ホスト名の「s3」はプロトコル名です。`s3.isk01.sakurastorage.jp` は AWS と無関係のさくらのサービスですが、SigV4 で署名するクライアント(筆者の環境では s5cmd)がエンドポイントの差し替えだけで使えます
 
 ## 参考
 
