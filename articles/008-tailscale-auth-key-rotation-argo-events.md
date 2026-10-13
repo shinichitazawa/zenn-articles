@@ -537,7 +537,7 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ## 付録: NATS JetStream を EventBus に使う意味
 
-ここまで「EventSource が webhook を受信し Sensor が filter する」と書いてきたが、両者を直接つないでいるわけではありません。間には `EventBus` という CR が介在し、その実体が NATS JetStream stream です。auth key rotation のような「失敗したら手動回復しないと bastion が落ちる」 critical path では、この backbone の保証セマンティクスが品質の上限を決めるため、ここを深掘りします。
+**auth key rotation は、失敗すると手で回復しない限り bastion が落ちる経路です。そのため、EventSource と Sensor の間で event を運ぶ `EventBus`(実体は NATS JetStream の stream)が、event を失わずに届けられるかどうかが、この仕組みの信頼性を決めます。** この付録では、その保証を公式ドキュメントで確かめます。
 
 ### EventBus がなぜ必要か
 
