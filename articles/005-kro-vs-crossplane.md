@@ -30,24 +30,24 @@ Kustomize + ArgoCD で多数のアプリをデプロイしていると、以下�
 >
 > — [Automated Sync Policy — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
 
-一方でクラウドリソースは Terraform 側にあり、正典・適用の操作・差分の是正がアプリ側と揃いません。
+一方でクラウドリソースは Terraform 側にあり、適用の操作・差分の是正・依存順序の扱いがアプリ側と揃いません。
 
 | 観点 | アプリ(Kustomize + ArgoCD) | クラウドリソース(Terraform) |
 |---|---|---|
-| 正典 | git のマニフェスト | git の HCL と [state](https://developer.hashicorp.com/terraform/language/state) |
+| 正典 | git のマニフェスト | git の HCL |
 | 適用 | ArgoCD が git を監視して自動で同期 | 人が `terraform apply` を実行 |
 | 手で変えた差分 | `selfHeal` で git の状態に戻る | 次の apply まで残る |
 | 依存順序 | [sync wave](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/) で宣言 | 人が適用の順番を守る |
 
 この分かれ方があると、アプリを 1 つ増やすだけでも 2 つのリポジトリを触り、レビューも 2 回に分かれます。IAM Role を先に作ってから pod を起動するという順序も、人が保証することになります。ロールバックも片方ずつです。
 
-そこで、クラウドリソースも Kubernetes API で宣言して ArgoCD の系統に寄せる方法を探すことになります。AWS だけであれば [ACK](https://aws-controllers-k8s.github.io/community/docs/community/overview/) が直接の答えになります。
+そこで、クラウドリソースも Kubernetes API で宣言して ArgoCD の系統に寄せる方法を探すことになります。各クラウドは、自社のリソースを Kubernetes のリソースとして扱うコントローラを出しています。AWS は [ACK](https://aws-controllers-k8s.github.io/community/docs/community/overview/)、GCP は [Config Connector](https://github.com/GoogleCloudPlatform/k8s-config-connector)、Azure は [Azure Service Operator](https://azure.github.io/azure-service-operator/) です。
 
 > AWS Controllers for Kubernetes (ACK) lets you define and use AWS service resources directly from Kubernetes.
 >
 > — [ACK overview](https://aws-controllers-k8s.github.io/community/docs/community/overview/)
 
-ただし ACK は AWS リソースを 1 つずつ宣言する層で、「Deployment と Service と IAM Role をまとめて 1 つの抽象として扱う」ところは担いません。そこを埋めるのが Kro と Crossplane で、本記事の比較対象です
+ただし、これらのコントローラはクラウドのリソースを 1 つずつ宣言する層で、「Deployment と Service と IAM Role をまとめて 1 つの抽象として扱う」ところは担いません。そこを埋めるのが Kro と Crossplane で、本記事の比較対象です
 
 ```mermaid
 flowchart TB
@@ -127,7 +127,7 @@ helm install kro oci://registry.k8s.io/kro/charts/kro \
 
 ## Crossplane
 
-[Crossplane](https://docs.crossplane.io/) は 2018 年から発展してきた OSS で、エコシステムも成熟しています。CNCF では [2025-11-06 に Graduated](https://www.cncf.io/announcements/2025/11/06/cloud-native-computing-foundation-announces-graduation-of-crossplane/) となりました（2026-08 時点の最新は v2.3）。
+[Crossplane](https://docs.crossplane.io/) は 2018 年から発展してきた OSS で、エコシステムも成熟しています。CNCF では [2025-11-06 に Graduated](https://www.cncf.io/announcements/2025/11/06/cloud-native-computing-foundation-announces-graduation-of-crossplane/) となりました（2026-10-13 時点の最新は [v2.4.2](https://github.com/crossplane/crossplane/releases/tag/v2.4.2)）。
 
 ### 仕組み
 
@@ -173,7 +173,7 @@ spec:
 | 思想 | Kubernetes ネイティブ RGD で複合リソースをバンドル | クラウド全体を Kubernetes API 化 |
 | 対象 | Kubernetes リソース全般(クラウドは ACK / KCC / ASO 経由) | AWS / GCP / Azure / その他全部 |
 | 重さ | 軽量 (requests 256m CPU / 128Mi RAM、アイドル実測 2m CPU / 50Mi RAM) | 重 (RAM 1,024Mi 以上 ※筆者未検証の概算) |
-| API 成熟度 | alpha (v0.9.x) | 安定 (v2.3、CNCF Graduated) |
+| API 成熟度 | alpha (v0.9.4、`v1alpha1`) | 安定 (v2.4.2、CNCF Graduated) |
 | 低リソース環境での運用 | ◎ | △ |
 | 学習コスト | 中 (RGD 設計) | 高 (Composition + Provider) |
 | Provider エコシステム | 自前では持たない(各クラウドのコントローラに任せる) | 豊富 (公式 + コミュニティ) |
@@ -181,26 +181,25 @@ spec:
 
 ## 選定の指針
 
-上の比較表が両者の性質を並べたものであるのに対し、この節の表は「自分の条件ではどちらが向くか」を条件別に整理したものです。判断基準: 軽量さ重視なら Kro、マルチクラウド/エコシステム重視なら Crossplane。
+**分かれ目は、クラウド以外のリソースも扱うか、alpha の API を許容できるか、RAM に余裕があるかの 3 つです。使うクラウドが AWS だけか複数かでは決まりません。** Kro は各クラウドの公式コントローラ(AWS は ACK、GCP は Config Connector、Azure は Azure Service Operator)の CRD を束ね、Crossplane はクラウドごとの Provider を束ねます。どちらも、使うクラウドごとに部品を 1 つずつ入れる点は同じです。
 
 | 条件 | Kro | Crossplane |
 |---|---|---|
 | RAM の限られた環境(エッジ / SBC(Single Board Computer。Raspberry Pi などの小型ボード)) | ○ 軽量(アイドル実測 50Mi) | △ core + Provider で 1,024Mi 以上(※未検証の概算) |
-| AWS 中心(ACK と併用) | ○ | 過剰になりやすい |
-| 複数クラウドの統合管理 | △ クラウドごとにコントローラ(ACK / KCC / ASO)を入れる | ○ 本領 |
+| 複数クラウド | ○ クラウドごとの公式コントローラ(ACK / KCC / ASO)を束ねる | ○ クラウドごとの Provider を束ねる |
+| API の安定性 | △ alpha。破壊的変更がありうる | ○ 安定 |
 | 学習コスト | Kubernetes YAML の延長(RGD) | Composition の設計が必要 |
 | クラウド以外のリソース(GitHub / Slack 等) | 対象外 | Provider があれば ○ |
 
 Kro を選ぶ理由になりやすい点:
 
 1. **リソース制約**: Crossplane core + Provider AWS で RAM 1Gi(1,024Mi)以上を消費するとされます(※筆者未検証の概算)。RAM の限られた環境 (エッジ/SBC 等) では他 Pod の余裕が無くなります
-2. **AWS 中心の構成**: GCP/Azure を使う予定がないなら、Crossplane のマルチクラウド対応は過剰になります
-3. **学習コスト**: Composition の設計には時間がかかります。RGD は Kubernetes YAML の延長で書けます
-4. **ACK との相性**: AWS リソース管理は ACK Controllers (IAM, S3) + Kro RGD でカバー可能
+2. **学習コスト**: Composition の設計には時間がかかります。RGD は Kubernetes YAML の延長で書けます
+3. **各クラウドの公式コントローラをそのまま使える**: AWS は ACK、GCP は Config Connector、Azure は Azure Service Operator のリソースを、RGD でアプリの Deployment などと一緒に束ねられます
 
 逆に次の場合は Crossplane が向きます:
 
-- 複数クラウド (AWS + GCP) を統合管理
+- API の安定性が必要(Kro は alpha)
 - 既に Crossplane に投資している
 - Provider 経由で GitHub Repo / Slack Channel 等も管理したい
 
@@ -264,22 +263,26 @@ ACK IAM Controller が IAM Role を作り、ServiceAccount に annotation を付
 
 ## 採用判断フロー
 
+**クラウド以外のリソースを扱うか、alpha を許容できないなら Crossplane、そうでなければ Kro です。** どのクラウドを使うかは、分岐に入りません。
+
 ```mermaid
 flowchart TB
-  Q1{小規模 / 低リソース環境か}
-  Q1 -->|NO| CP1[Crossplane]
-  Q1 -->|YES| Q2{AWS 中心の構成か}
+  Q1{"GitHub / Slack など<br/>クラウド以外も管理したいか"}
+  Q1 -->|YES| CP1[Crossplane]
+  Q1 -->|NO| Q2{"alpha の API<br/>(破壊的変更)を許容できるか"}
   Q2 -->|NO| CP2[Crossplane]
-  Q2 -->|YES| Q3{複合リソースをまとめる<br/>抽象が必要か}
-  Q3 -->|YES| KRO[Kro RGD + ACK]
-  Q3 -->|NO| KUS[Kustomize で十分]
+  Q2 -->|YES| Q3{"複数のリソースを<br/>1 つの抽象にまとめたいか"}
+  Q3 -->|NO| KUS["Kustomize + 各クラウドの<br/>コントローラで十分"]
+  Q3 -->|YES| KRO["Kro RGD + 各クラウドの<br/>コントローラ(ACK / KCC / ASO)"]
 ```
+
+RAM の限られた環境(エッジ / SBC)では、Kro を選ぶ理由が強くなります。既に Crossplane を運用している場合は、上の一覧のとおり Crossplane が向きます。
 
 ## まとめ
 
-- **Kro**: 軽量、Kubernetes ネイティブ、低リソース 〜 中小規模に向きます
-- **Crossplane**: マルチクラウド、大規模、エコシステム成熟
-- **AWS 中心**の構成では Kro が有力
+- **Kro**: 軽量で、Kubernetes の YAML の延長で書けます。クラウドのリソースは、各クラウドの公式コントローラ(AWS は ACK、GCP は Config Connector、Azure は Azure Service Operator)を RGD で束ねます。API は alpha です
+- **Crossplane**: クラウド以外のリソースも Provider で扱え、API は安定しています(CNCF Graduated)。Pod は重めです
+- 分かれ目は、クラウド以外も扱うか、alpha を許容できるか、RAM に余裕があるかです。使うクラウドの数では決まりません
 
 両者は競合しますが、共存もできます。Kro が alpha のうちは破壊的変更に注意して使います。
 
@@ -301,4 +304,3 @@ flowchart TB
 - [Azure Service Operator (ASO)](https://azure.github.io/azure-service-operator/)
 - [Automated Sync Policy — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
 - [Sync Phases and Waves — Argo CD](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/)
-- [State — Terraform](https://developer.hashicorp.com/terraform/language/state)
