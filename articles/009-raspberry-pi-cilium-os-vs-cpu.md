@@ -167,7 +167,11 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 | kube-proxy add-on v1.30 | 条件が入る前の版 | 2026-07 に延長サポートが終了 |
 
 1. **Cilium の kube-proxy replacement を使う**
-   kube-proxy の代わりに Cilium が Service の振り分けを行います([Cilium 公式の kube-proxy replacement](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/))。k3s では、servicelb と Traefik も無効にしてください。筆者環境(Pi 5、Ubuntu 26.04、2026-07)では、これを忘れて外から SSH が届かなくなりました。k3s の servicelb がノードの IP を Traefik の LoadBalancer に割り当て、Cilium がそのノードの IP 宛ての通信を、振り分け先の無いサービスとして捨てたためです。k3s の起動オプションに `--disable=servicelb --disable=traefik` を足すと直りました
+   kube-proxy の代わりに Cilium が Service の振り分けを行います([Cilium 公式の kube-proxy replacement](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/))。k3s では、servicelb と Traefik も無効にしてください。どちらも k3s が標準で入れる部品です([k3s: Networking Services](https://docs.k3s.io/networking/networking-services))。
+   - **Traefik**: HTTP のリバースプロキシで、k3s では Ingress を処理します。ポート 80 と 443 を使う LoadBalancer の Service として起動します
+   - **servicelb**: クラウドのロードバランサが無い環境で LoadBalancer の Service を使えるようにする k3s の仕組みです。ノードのポートを使い、ノードの IP を Service の外部アドレスに書き込みます
+
+   筆者環境(Pi 5、Ubuntu 26.04、2026-07)では、これを無効にし忘れて、外から SSH が届かなくなりました。servicelb が Traefik の Service にノードの IP を割り当て、Cilium の kube-proxy replacement がそのノードの IP を「振り分け先の無いサービスの宛先」として扱い、SSH などサービス以外の通信まで捨てたためです。k3s の起動オプションに `--disable=servicelb --disable=traefik` を足すと直りました。Ingress が必要なら、ノードの IP を使わない Cilium の LoadBalancer の機能などで代わりを用意します
 2. **upstream の kube-proxy イメージを使う**
    AWS の同じページが案内する方法です
 
