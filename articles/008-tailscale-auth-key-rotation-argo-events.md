@@ -438,7 +438,13 @@ target account 側の cross-account Role は Terraform で別管理です (詳�
 
 ## ASG instance refresh の MinHealthyPercentage
 
-bastion は single-AZ / single-instance 構成です。default の `MinHealthyPercentage: 90` のままでも[公式 doc](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) の "Violate min healthy percentage" fallback で実行はされますが、同 doc が「single instance の ASG では推奨しない、instance refresh の開始で outage を引き起こし得る」と明示している通り、意図しない瞬断が紛れ込みます。`MinHealthyPercentage: 0` を Preferences に明示して「短時間の 0 instance 状態を許容する」運用契約を表に出します[^5]。
+**`MinHealthyPercentage: 0` を明示して、「key を更新するたびに bastion が短時間 0 台になる」ことを設定値として残します。** 停止そのものは、既定のままでも起こります。
+
+bastion は 1 つの AZ に 1 台だけの構成です。既定の `MinHealthyPercentage: 90` のままでも instance refresh は進みます。台数の条件を満たせないときの既定の動作が「Violate min healthy percentage」(最低台数の条件を破って入れ替える)だからです。[公式ドキュメント](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html)は、この既定を台数の少ないグループには勧めておらず、1 台のグループについて次のように書いています。
+
+> If there is only one instance in the Auto Scaling group, starting an instance refresh can result in an outage.
+
+つまり、どちらの書き方でも、置き換えの間は bastion が 0 台になります。既定に任せると、その停止がコードからは読み取れません。`Preferences` に `MinHealthyPercentage: 0` と書いておけば、コードを読んだ人が「この更新では bastion が止まる」と分かります[^5]。
 
 ```python
 session.client("autoscaling").start_instance_refresh(
@@ -451,7 +457,7 @@ session.client("autoscaling").start_instance_refresh(
 )
 ```
 
-複数台の冗長 ASG では通常 `MinHealthyPercentage=90` 等を使います。bastion のように「短時間の disconnection を許容できる single-node」だけが 0 で OK。
+複数台の ASG では、`MinHealthyPercentage` を 90 などにして、入れ替え中も一定の台数を残します。0 にするのは、bastion のように短時間の切断を許容できる 1 台構成のときだけです。
 
 [^5]: [Amazon EC2 Auto Scaling: Start an instance refresh](https://docs.aws.amazon.com/autoscaling/ec2/userguide/start-instance-refresh.html) — `MinHealthyPercentage` / `InstanceWarmup` は Preferences の JSON フィールド
 
