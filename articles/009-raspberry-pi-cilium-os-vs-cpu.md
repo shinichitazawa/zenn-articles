@@ -1,5 +1,5 @@
 ---
-title: "Raspberry Pi の Cilium 対応は OS ではなく CPU 世代で決まる"
+title: "Raspberry Pi で Cilium と EKS Hybrid Nodes を使う条件"
 emoji: "🍓"
 type: "tech"
 topics: ["raspberrypi", "cilium", "kubernetes", "arm64", "eks"]
@@ -8,9 +8,12 @@ published: false
 
 ## はじめに
 
-ローカルの Raspberry Pi で動かしている k3s クラスタを Cilium 化したい、あるいは将来 EKS Hybrid Nodes のノードとして使いたい。そう考えたときによく直面するのが「うちの Pi はそもそも対応しているのか？ ダメなら OS をアップデートすれば直るのか？」という問いです。
+**Raspberry Pi の k3s で Cilium を使う条件は OS だけで決まり、Pi 3〜5 のどれでも満たせます。Pi を EKS Hybrid Nodes のノードにする場合は、これに CPU の条件が加わります。EKS の kube-proxy add-on の v1.31 以降は Armv8.2 と Cryptography Extension を持つ CPU を要求し、Pi 5 より前の機種は満たしません。**
 
-制約は「OS 層で直るもの」と「CPU のシリコン世代でしか直らないもの」の 2 層に分かれます。この切り分けを間違えると「OS を新しくしたのに動かない」「Pi を買い替えたら一発だった」という遠回りをします。本記事はその境界線を、公式ドキュメントを引きながら引きます。
+- Cilium に必要なのは kernel 5.10 以上と BTF です。Raspberry Pi OS の現行 kernel は BTF が無いので、Ubuntu Server 24.04 arm64 などに入れ替えます
+- EKS Hybrid Nodes の CPU の条件は、OS を更新しても満たせません。Pi 3 / Pi 4 では、EKS の kube-proxy add-on を動かさない構成(Cilium の kube-proxy replacement など)にします
+
+本記事では、この 2 つの条件を、公式ドキュメントを引いて OS で満たせるものと CPU で決まるものに分けて整理します。
 
 想定読者は、Raspberry Pi 上で k3s / Kubernetes を運用していて Cilium (eBPF CNI) や EKS Hybrid Nodes に踏み込もうとしている中級者です。Pi のモデル（3 / 4 / 5）ごとに結論が変わるので、自分の手元のモデルに読み替えてください。
 
@@ -18,46 +21,26 @@ published: false
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメントを引用して検証しています。誤りや改善点があれば、コメント等でご指摘ください。
 :::
 
-## 結論: 制約は 2 層に分かれる
+## 結論: OS で満たせる条件と CPU で決まる条件
 
-| 制約 | 2 層区分 | 層の詳細 | OS 更新で直る? | 根拠 |
-|---|---|---|---|---|
-| k3s が Cilium に対応しているか | ① OS 層 | ソフト（設定） | — (元から対応) | k3s / Cilium 公式手順 |
-| nodeadm の対応 OS（Ubuntu 版数） | ① OS 層 | OS | ✅ 直る | EKS 公式 OS マトリクス |
-| Cilium の kernel 要件（5.10+ / BTF） | ① OS 層 | OS（kernel） | ✅ 直る | Cilium System Requirements |
-| Armv8.2-A 命令を要求するバイナリ | ② CPU 層 | CPU（シリコン） | ❌ 直らない | Arm Cortex TRM |
+| 条件 | 必要になる場面 | OS の更新で満たせるか | 根拠 |
+|---|---|---|---|
+| k3s で CNI を差し替えられる | Cilium | — (元から対応) | k3s / Cilium 公式手順 |
+| kernel 5.10 以上と BTF | Cilium | ✅ 満たせる | Cilium System Requirements |
+| nodeadm の対応 OS | EKS Hybrid Nodes | ✅ 満たせる | EKS 公式 OS 一覧 |
+| Armv8.2 + Cryptography Extension | EKS Hybrid Nodes(kube-proxy add-on v1.31 以降) | ❌ 満たせない | EKS 公式、Arm Cortex TRM |
 
-上 3 つは OS / kernel / 設定の話なので、適切な OS を入れれば解決します。最後の 1 つだけは CPU の世代に焼き付いた制約で、OS を更新しても命令セットは追加されません。この区別が本記事の主題です。
-
-図にすると、制約は次の 2 層に分かれ、CPU 層だけが OS 更新では解消できない制約になります。
+上の 3 つは OS か設定の話なので、OS を入れ替えれば満たせます。最後の 1 つは CPU の命令セットの条件で、OS を更新しても命令は増えません。ただし、この条件が効くのは EKS の kube-proxy add-on を動かすときだけです。
 
 ```mermaid
 flowchart TB
-  Q["Raspberry Pi で<br/>Cilium / EKS Hybrid Nodes を動かしたい"] --> L1
-
-  subgraph L1["① OS層の制約 — OS更新で直る ✅"]
-    A1["nodeadm 対応OS<br/>Ubuntu 24.04 arm64 化"]
-    A2["Cilium kernel要件<br/>5.10+ / BTF 有効"]
-  end
-
-  L1 --> L2
-
-  subgraph L2["② CPU層の制約: Armv8.2-A — OS更新で直らない ❌"]
-    P3["Pi 3<br/>Cortex-A53<br/>Armv8-A"]
-    P4["Pi 4<br/>Cortex-A72<br/>Armv8-A"]
-    P5["Pi 5<br/>Cortex-A76<br/>Armv8.2-A"]
-  end
-
-  P3 --> V3["△ 検証可だが非力<br/>常用は非推奨"]
-  P4 --> V4["○ Cilium kube-proxy replacement で回避<br/>upstream kube-proxy を動かさない"]
-  P5 --> V5["◎ そのまま全部通る"]
-
-  classDef ok fill:#e6f4ea,stroke:#34a853,color:#0d652d
-  classDef ng fill:#fce8e6,stroke:#ea4335,color:#a50e0e
-  classDef warn fill:#fef7e0,stroke:#f9ab00,color:#b06000
-  class A1,A2,P5,V5 ok
-  class P3,P4 ng
-  class V3,V4 warn
+  C["Cilium を使う"] --> OS["OS の条件<br/>kernel 5.10 以上 + BTF<br/>(Ubuntu 24.04 arm64 で満たす)"]
+  OS --> OKC["Pi 3 / 4 / 5 すべて可"]
+  H["EKS Hybrid Nodes を使う"] --> OS2["OS の条件<br/>nodeadm の対応 OS<br/>(Ubuntu 24.04 arm64 で満たす)"]
+  OS2 --> KP{"EKS の kube-proxy add-on<br/>v1.31 以降を動かすか"}
+  KP -->|"動かす"| CPU["CPU の条件<br/>Armv8.2 + Crypto"]
+  CPU --> P5["Pi 5 だけ可"]
+  KP -->|"動かさない<br/>(Cilium の kube-proxy replacement など)"| ALL["Pi 3 / 4 / 5 すべて可"]
 ```
 
 ## 前提: k3s は Cilium に対応している
@@ -87,7 +70,7 @@ cilium install --version 1.19.5 \
 
 [Cilium の k3s ガイド](https://docs.cilium.io/en/stable/installation/k3s/)は amd64 と arm64 の両アーキテクチャをサポートすると明記しており、arm64 の Raspberry Pi も対象に入ります。「k3s で Cilium が動くか？」の答えは Yes（公式手順あり）です。
 
-問題はその先、「手元の Pi のハードと OS がその要件を満たすか」にあります。
+残る条件は、手元の Pi の OS と CPU が要件を満たすかどうかです。
 
 ## OS 更新で直る制約
 
@@ -95,7 +78,7 @@ cilium install --version 1.19.5 \
 
 EKS Hybrid Nodes のノードは、nodeadm が対応する OS でなければサポートされません。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html) の検証済み OS は Amazon Linux 2023 / Ubuntu 20.04・22.04・24.04 / RHEL 8・9 などです。
 
-Raspberry Pi で対応マトリクスに沿うなら、Raspberry Pi OS ではなく Ubuntu Server 24.04 LTS の arm64 を入れる方法があります。これは OS 層の話なので、OS を入れ替えれば解決します。
+Raspberry Pi で対応マトリクスに沿うなら、Raspberry Pi OS ではなく Ubuntu Server 24.04 LTS の arm64 を入れる方法があります。これは OS の条件なので、OS を入れ替えれば満たせます。
 
 ### 2. Cilium の kernel 要件
 
@@ -132,18 +115,22 @@ ls: cannot access '/sys/kernel/btf/vmlinux': No such file or directory
 kernel バージョンは 6.6 で 5.10+ の要件を満たしているのに、BTF だけが欠けているため、[Cilium System Requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) の必須項目 `CONFIG_DEBUG_INFO_BTF=y` を満たせません。この状態で k3s の flannel を外して Cilium を入れると、Cilium agent が CO-RE の eBPF プログラムをロードできず、ノードが Ready になりません。つまり CPU 世代（Armv8.2-A）以前に、OS 層の BTF 欠如で Cilium が動かないわけです。逆に言えば、これは「OS 層の制約」であり、Ubuntu 24.04 arm64（BTF 有効）へ載せ替えれば解消します。
 
 :::message
-ここまでの 2 つは「OS を Ubuntu 24.04 arm64 にする」だけで両方クリアできます。OS 更新が効くのはこの層まで、というのが次節との境界になります。
+ここまでの 2 つは、OS を Ubuntu 24.04 arm64 にすれば両方とも満たせます。
 :::
 
-## OS 更新で直らない制約: Armv8.2-A
+## OS の更新で満たせない条件: Armv8.2 と Cryptography Extension
 
-一部のコンテナイメージは、起動時に次のようなエラーで落ちることがあります。
+**EKS の kube-proxy add-on の v1.31 以降は、Armv8.2 と Cryptography Extension を持つ CPU を要求し、Pi 5 より前の機種では起動しません。** [Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)(2026-10 時点で取得)の ARM の節に、次のとおり書かれています。
+
+> All Raspberry Pi systems prior to the Raspberry Pi 5, as well as Cortex-A72 based processors, do not meet this requirement.
+
+この条件に合わない CPU では、kube-proxy のログに次のエラーが出ると、同じページに書かれています。
 
 ```text
 Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.
 ```
 
-この要件は AWS 公式が明記しています。[Prepare operating system for hybrid nodes](https://docs.aws.amazon.com/eks/latest/userguide/hybrid-nodes-os.html)（2026-08 時点で取得）の ARM 節は、Armv8.2 準拠かつ Cryptography Extension 付き（Armv8.2+crypto）のプロセッサが EKS kube-proxy add-on の v1.31 以降で必要であり、Raspberry Pi 5 より前の全機種と Cortex-A72 ベースのプロセッサはこれを満たさないと述べています。同ページは回避策として kube-proxy add-on v1.30 を使い続ける方法を案内していました。しかし v1.30 は 2026 年 7 月に延長サポートが終了しています。そのため現時点で残る選択肢は、upstream の custom kube-proxy image を使うことです。
+同じページは、回避策として kube-proxy add-on の v1.30 を使い続ける方法と、upstream の kube-proxy イメージを使う方法を挙げています。v1.30 は 2026 年 7 月に延長サポートが終わったので、今の選択肢は upstream のイメージです。
 
 これは CPU の命令セット世代の問題で、OS や kernel をいくら新しくしても直らません。実装されていない命令をソフトウェアで補うことはできないためです。
 
@@ -167,54 +154,45 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 - Raspberry Pi 4 Model B = Cortex-A72（[Raspberry Pi 4 specifications](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/specifications/)）
 - Raspberry Pi 3 Model B+ = Cortex-A53（[Raspberry Pi 3 B+ product page](https://www.raspberrypi.com/products/raspberry-pi-3-model-b-plus/)）
 
-整理すると、Armv8.2-A 命令を要求するバイナリは、Armv8-A 止まりの Pi 3 / Pi 4 では動きません。Pi 5（A76）だけが Armv8.2-A を持ちます。これは CPU の実装で決まるため、OS 更新では解消できません。
+整理すると、Armv8.2-A を要求する EKS の kube-proxy add-on(v1.31 以降)は、Armv8-A までの Pi 3 / Pi 4 では動きません。Pi 5（A76）だけが Armv8.2-A を持ちます。これは CPU の実装で決まるため、OS 更新では解消できません。
 
-:::message alert
-`Fatal glibc error: This version of Amazon Linux requires a newer ARM64 processor compliant with at least ARM architecture 8.2-a with Cryptographic extensions. On EC2 this is Graviton 2 or later.` 自体は、コンテナイメージ内の glibc が「より新しい `-march` でビルドされていて Armv8.2-A 命令を含む」ときに出る症状で、具体的にどのイメージ・どのバージョンで踏むかはイメージのビルド条件に依存します。本記事はその個別マッピングまでは断定しません（イメージごとに要確認）。Arm TRM から言えるのは「根本原因は CPU 命令セット世代であり、ホスト OS の更新では解決しない」という一点です（根拠は上記 Arm TRM）。
-:::
+## Pi 3 / Pi 4 での回避策
 
-## 回避策(ハード買い替え以外)
-
-「Pi 3 / Pi 4 では対応不可能」かというと、必ずしもそうではありません。Armv8.2-A を要求してくるのは多くの場合「特定イメージのビルド条件」なので、迂回路があります。
+**Pi 3 / Pi 4 でも、EKS の kube-proxy add-on を動かさなければ、この CPU の条件は出ません。**
 
 | 回避策 | 仕組み | 注意 |
 |---|---|---|
-| Cilium の kube-proxy replacement | upstream kube-proxy を動かさず、そのイメージの Armv8.2-A 要求自体を発生させない | Cilium 本体は baseline arm64 配布 |
-| kube-proxy のバージョン固定 | ビルド条件が変わる前のタグを使う | 対象イメージでの確認が必要 |
-| baseline 向けに自前再ビルド | `-march=armv8-a` 相当でビルドし直す | 運用コストが上がる |
+| Cilium の kube-proxy replacement | kube-proxy を動かさない | k3s では servicelb と Traefik を無効にする |
+| upstream の kube-proxy イメージ | EKS の add-on ではないイメージを使う | AWS が案内する方法 |
+| kube-proxy add-on v1.30 | 条件が入る前の版 | 2026-07 に延長サポートが終了 |
 
-1. **Cilium の kube-proxy replacement を使い、upstream の `kube-proxy` を動かしません**
-   そもそも `kube-proxy` DaemonSet を起動しなければ、そのイメージ起因の Armv8.2-A 要求は発生しません。Cilium 自身のイメージは baseline arm64（Armv8-A）向けに配布されており、Pi 4 でも動きます。kube-proxy free 化は[Cilium 公式の kube-proxy replacement](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/)に従います。
-2. **kube-proxy を使うなら、Armv8.2-A 要求が入る前のバージョンに固定します**
-   イメージのビルド条件が変わる前のタグを使えば回避できる場合があります（要・対象イメージでの確認）。
-3. **baseline 向けに自前で再ビルドしたイメージを使います**
-   `-march=armv8-a` 相当でビルドし直せば A53 / A72 でも動きます。運用コストは上がります。
-
-つまり「OS 更新」ではなく「動かすバイナリ側の選択」が Pi 3 / Pi 4 での回避の方針になります。
+1. **Cilium の kube-proxy replacement を使う**
+   kube-proxy の代わりに Cilium が Service の振り分けを行います([Cilium 公式の kube-proxy replacement](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/))。k3s では、servicelb と Traefik も無効にしてください。筆者環境(Pi 5、Ubuntu 26.04、2026-07)では、これを忘れて外から SSH が届かなくなりました。k3s の servicelb がノードの IP を Traefik の LoadBalancer に割り当て、Cilium がそのノードの IP 宛ての通信を、振り分け先の無いサービスとして捨てたためです。k3s の起動オプションに `--disable=servicelb --disable=traefik` を足すと直りました
+2. **upstream の kube-proxy イメージを使う**
+   AWS の同じページが案内する方法です
 
 ## Pi モデル別の結論
 
-| モデル | CPU / 命令セット | 判定 |
-|---|---|---|
-| Pi 5 | Cortex-A76 / Armv8.2-A | 制約なし。Hybrid Node 候補として最有力 |
-| Pi 4 | Cortex-A72 / Armv8-A | OS 更新 + kube-proxy replacement で実用回避可 |
-| Pi 3 | Cortex-A53 / Armv8-A | 要件は満たせるが性能面で常用は非推奨 |
+| モデル | CPU / 命令セット | Cilium | EKS Hybrid Nodes |
+|---|---|---|---|
+| Pi 5 | Cortex-A76 / Armv8.2-A | OS の入れ替えで可 | OS の入れ替えで可 |
+| Pi 4 | Cortex-A72 / Armv8-A | OS の入れ替えで可 | kube-proxy add-on を使わなければ可 |
+| Pi 3 | Cortex-A53 / Armv8-A | 可(常用は非推奨) | 同左(常用は非推奨) |
 
 - **Raspberry Pi 5（Cortex-A76 / Armv8.2-A）**: 命令セットの制約がありません。Ubuntu 24.04 arm64 化すれば nodeadm 対応・Cilium kernel 要件・Armv8.2-A をすべて満たします。Hybrid Node 候補として最有力です。
-- **Raspberry Pi 4（Cortex-A72 / Armv8-A）**: OS を Ubuntu 24.04 arm64 にすれば nodeadm / eBPF 要件は満たせます。Armv8.2-A 要求イメージに該当しうるので、Cilium kube-proxy replacement でそもそも upstream kube-proxy を動かさない構成にすると安全です。実用上はこれで回避できます。
+- **Raspberry Pi 4（Cortex-A72 / Armv8-A）**: OS を Ubuntu 24.04 arm64 にすれば、nodeadm と Cilium の条件は満たせます。EKS Hybrid Nodes では、EKS の kube-proxy add-on の代わりに、Cilium の kube-proxy replacement か upstream の kube-proxy イメージを使います。
 - **Raspberry Pi 3（Cortex-A53 / Armv8-A）**: OS 更新で要件自体は満たせますが、CPU が非力でメモリも少ない個体が多く、Cilium + Hybrid Node 常駐は重いです。検証はできても常用は Pi 4 / 5 を推奨します。
-
-「OS をアップデートすれば対応可になりませんか？」への最終的な答えは、「nodeadm 対応・kernel 要件は OS 更新で直ります。ただし Armv8.2-A の制約は CPU 世代の問題で OS では直りません。Pi 4 以下では『動かすバイナリの選択』で回避します」となります。
 
 ## まとめ
 
-1. k3s は Cilium に公式対応しています（`--flannel-backend=none --disable-network-policy`、kube-proxy free なら `--disable-kube-proxy`）。
-2. Pi の制約は OS 層（nodeadm 対応 OS・Cilium kernel 5.10+ / BTF）と CPU シリコン層（Armv8.2-A）に分かれます。
-3. OS 層は Ubuntu 24.04 arm64 化で直ります。CPU 層は OS 更新では直りません（Arm TRM が示す通り A53 / A72 は Armv8-A）。
-4. Pi 3 / Pi 4 で Armv8.2-A を要求するイメージが必要になったら、Cilium kube-proxy replacement などで「動かすバイナリ」を変えて回避します。
-5. 制約なく要件をすべて満たすのは Pi 5（Cortex-A76 / Armv8.2-A）です。
+1. Raspberry Pi で Cilium を使う条件は OS(kernel 5.10 以上と BTF)だけで決まります。Raspberry Pi OS の現行 kernel は BTF が無いので、Ubuntu 24.04 arm64 などに入れ替えます
+2. EKS Hybrid Nodes では、nodeadm の対応 OS に加えて、EKS の kube-proxy add-on v1.31 以降が Armv8.2 と Cryptography Extension を要求します。Pi 5 より前の機種は満たさず、OS の更新でも直りません
+3. Pi 3 / Pi 4 では、Cilium の kube-proxy replacement か upstream の kube-proxy イメージを使い、EKS の kube-proxy add-on を動かさない構成にします。k3s で kube-proxy replacement を使うときは、servicelb と Traefik を無効にします
+4. どちらの条件もそのまま満たすのは Pi 5(Cortex-A76 / Armv8.2-A)です
 
 ## 参考
+
+- 検証時の構成ファイル: [cilium](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/cilium)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) の main 時点。環境固有値はダミーに置換済み）
 
 - [k3s: Basic Network Options（Custom CNI）](https://docs.k3s.io/networking/basic-network-options)
 - [Cilium: Installation on k3s](https://docs.cilium.io/en/stable/installation/k3s/)
@@ -227,4 +205,3 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 - [Raspberry Pi 5 product page](https://www.raspberrypi.com/products/raspberry-pi-5/)
 - [Raspberry Pi 4 Model B specifications](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/specifications/)
 - [Raspberry Pi 3 Model B+ product page](https://www.raspberrypi.com/products/raspberry-pi-3-model-b-plus/)
-- 検証時の構成ファイル: [cilium](https://github.com/shinichitazawa/k8s-deploy-public/tree/main/cilium)（[k8s-deploy-public](https://github.com/shinichitazawa/k8s-deploy-public) の main 時点。環境固有値はダミーに置換済み）
