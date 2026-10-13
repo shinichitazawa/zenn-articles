@@ -20,15 +20,27 @@ published: false
 本記事の文章生成・編集には AI (Anthropic Claude) を活用しています。技術的事実については、筆者が公式ドキュメント・ライセンス原文・実行ログで検証しています。誤りや改善点があれば、コメント等でご指摘ください。
 :::
 
-## ライセンスが求める「技術的な保護措置」
+## 第三者に生成機能を提供するときの、ライセンスの義務
 
-出発点は、MiniMax H3 のライセンス原文です。第 V 節に、利用者側の実装義務が明記されています。
+**MiniMax H3 のライセンスは、H3 で生成できる製品やサービスを第三者に提供する場合に、違反を防ぐ技術的・組織的な保護措置を、提供する前から実装し、維持し、テストし、定期的に見直すことを求めています(§V.5)。** 本記事のパイプラインは自分だけが使う検証用なので、この義務はそのままは掛かりません。本記事は、第三者に提供するときに必要になる保護措置のうち、技術的な部分をポリシーとして実装し、テストする例です。
 
-> you must, before making that product or service available and throughout its operation, implement, maintain, test, and periodically review reasonable and proportionate technical and organizational safeguards designed to prevent and mitigate access, uses, and Outputs that violate this Section V or Exhibit A
+条文は次のとおりです。
+
+> If you provide or make available to any Third Party a product, service, or Hosted Service that permits the generation of Outputs using MiniMax H3 or any Model Derivative, you must, before making that product or service available and throughout its operation, implement, maintain, test, and periodically review reasonable and proportionate technical and organizational safeguards designed to prevent and mitigate access, uses, and Outputs that violate this Section V or Exhibit A
 >
-> — [MiniMax H3 Community License Agreement, Section V.5](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE)(2026-09-09 取得)
+> — [MiniMax H3 Community License Agreement, Section V.5](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE)(2026-10-13 取得)
 
-「実装し、維持し、テストし、定期的に見直す」技術的・組織的な保護措置を求めています。ドキュメントに注意書きを書くことではなく、**動く仕組みを持つこと**が求められている、と読めます。ポリシーとして書けば、この 4 つの動詞のうち「実装」「テスト」は同時に満たせます。ポリシーファイルはそのまま仕様であり、`replay` は自動テストになるためです。
+求められていることを分けると、次のようになります。
+
+| 項目 | 内容 |
+|---|---|
+| 対象 | H3 で生成できる製品・サービスを第三者に提供する人 |
+| 防ぐもの | §V と Exhibit A に反するアクセス・利用・生成物(第三者の知的財産などの権利侵害を含む) |
+| 時期 | 提供する前から、運用している間ずっと |
+| すること | 保護措置の実装・維持・テスト・定期的な見直し |
+| 同じ節のほかの義務 | 保護措置を無効にしない。違反の報告窓口を置く。報告を受けたら調べて止める |
+
+このうち、ポリシーで満たせるのは「実装」と「テスト」です。ポリシーファイルが禁止事項の仕様になり、`replay` がその自動テストになるためです。維持・定期的な見直し・報告窓口は、運用の側で別に用意する必要があります。
 
 ## 守る対象を 3 層に整理する
 
@@ -229,7 +241,7 @@ $ dogwood replay policy.dw --policy-schema schema.cedarschema \
 
 ## まとめ
 
-- MiniMax H3 のライセンスは、利用者に「技術的・組織的な保護措置」の実装・維持・テスト・定期見直しを求めています(§V.5)。注意書きではなく動く仕組みが要求されています
+- MiniMax H3 のライセンスは、H3 で生成できる製品やサービスを第三者に提供する場合に、技術的・組織的な保護措置の実装・維持・テスト・定期的な見直しを求めています(§V.5)。ポリシーで満たせるのは、このうち実装とテストです
 - 守る対象はモデルライセンス・実行基盤の約款・自主的なコスト上限の 3 層に分かれ、それぞれ別の出どころを持ちます
 - 表示義務のような「作業」は、単独のチェックではなく**公開の前提条件**として順序に埋め込むと、忘れても公開できない構造になります
 - Cedar 系はデフォルト拒否のため、順序の飛び越しは拒否ルールを書かずに落ちます。明示的な `forbid` は順序で表現できない条件(地域制限・学習禁止)だけで済みました
