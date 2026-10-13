@@ -112,7 +112,8 @@ s3-tests は Ceph 以外でも使われる代表的な試験ですが、唯一�
 
 | 実装 | 言語 / ライセンス | 特徴 |
 |---|---|---|
-| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞。近年は商用版への注力が進み、2025 年に Community Edition の Web 管理 UI が object browser 中心へ縮小された([object-browser#3509](https://github.com/minio/object-browser/pull/3509))。これを受けて代替を検討する議論も起きている([minio discussion #21320](https://github.com/minio/minio/discussions/21320)) |
+| [MinIO](https://github.com/minio/minio) | Go / AGPLv3 | 長らく互換実装の代名詞でしたが、リポジトリはアーカイブされ、README に「THIS REPOSITORY IS NO LONGER MAINTAINED.」とあります(2026-10 時点で取得)。最後のリリースのノートはコンテナについて「please clone the source and build the latest container」としていて、公式のイメージは配布されていません。4 実装を実際に試した結果は別記事 `039-s3-compatible-oss-on-k3s` |
+| [RustFS](https://github.com/rustfs/rustfs) | Rust / Apache-2.0 | Apache-2.0 の分散型。s3-tests を CI で流して互換表を公開(§3.1) |
 | [Ceph RGW](https://github.com/ceph/ceph) | C++ / LGPL | s3-tests 本家。互換性は最も広いが運用は重量級 |
 | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) | Go / Apache-2.0 | 小さいファイル大量に強い設計。S3 API はサブセット |
 | [Garage](https://git.deuxfleurs.fr/Deuxfleurs/garage) | Rust / AGPLv3 | 自宅・エッジ向けの軽量分散。地理分散前提の設計 |
