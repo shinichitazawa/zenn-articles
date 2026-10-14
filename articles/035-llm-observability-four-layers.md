@@ -44,7 +44,7 @@ flowchart TB
   APP -.->|"層④ 通信そのものを eBPF で観測"| NO["NetObserv<br/>(Prometheus)"]
 ```
 
-## 層① CloudWatch メトリクス — 集計は分かるが、内訳は分からない
+## 層① CloudWatch メトリクス
 
 Bedrock は `AWS/Bedrock` 名前空間にメトリクスを自動で出します([Amazon Bedrock の CloudWatch メトリクス](https://docs.aws.amazon.com/bedrock/latest/userguide/monitoring-cw.html))。筆者環境で実際に発行されていたのは次の 6 種で、ディメンションは `ModelId` だけでした(2026-09 実測)。
 
@@ -65,7 +65,7 @@ InvocationLatency / InvocationClientErrors / EstimatedTPMQuotaUsage
 
 この層で答えられるのは「合計いくつ・いくら・どのモデルが遅いか」までです。ディメンションが `ModelId` だけのため、**どのワークフローが呼んだのか、失敗が何のエラーだったのかは分かりません**。レイテンシの分布(p90 / p99)はこの層だけが持ち、後述の呼び出しログには含まれません。
 
-## 層② 呼び出しログ — 1 件ごとの記録は既定で残らない
+## 層② 呼び出しログ
 
 Bedrock には呼び出し 1 件ごとの記録を残す機能があり、[公式ドキュメント](https://docs.aws.amazon.com/bedrock/latest/userguide/model-invocation-logging.html)は次のように書いています。
 

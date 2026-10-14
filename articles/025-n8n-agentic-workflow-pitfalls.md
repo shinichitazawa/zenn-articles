@@ -186,7 +186,7 @@ $ curl -s -o /dev/null -w '%{http_code}\n' -A "$BROWSER_UA" "$RESUME_URL"
 
 ちなみに、承認 URL に2回アクセスすると2回目は **HTTP 409** になりました。二重承認は n8n 側で防がれています。
 
-## 7. Wait のフォームは `fieldName` が効かない
+## 7. Wait のフォームの `fieldName`
 
 Wait を `resume: form` で使い、フォーム項目に `fieldName: 'decision'` を指定しました。しかし保存されたノード定義から `fieldName` が消えており、再開後の `$json.decision` は常に `null` でした(実測)。フォームの入力値は**ラベル名がキー**になります。
 
@@ -360,7 +360,7 @@ $ curl -s -A 'Mozilla/5.0' "$WEBHOOK_URL"
 # 認証エラーのような文言だが、実体は bot 判定
 ```
 
-実ブラウザからの操作には影響しませんが、curl やスクリプトで動作確認する場合は UA を完全な形で渡す必要があります。エラー文言から原因にたどり着きにくいので、`ignoreBots` 付き Webhook が 403 を返した場合、UA が原因の可能性が高いです。
+実ブラウザからの操作には影響しませんが、curl やスクリプトで動作確認する場合は UA を完全な形で渡す必要があります。エラー文言から原因にたどり着きにくいので、`ignoreBots` 付き Webhook が 403 を返した場合、まず UA を確認してください。
 
 なお、この紛らわしいエラー文言は upstream へ報告済みです([n8n-io/n8n#36363](https://github.com/n8n-io/n8n/issues/36363)。Webhook ノードはコミュニティ PR を受け付けない方針のため、修正ブランチを添えた issue の形で提出しています)。
 

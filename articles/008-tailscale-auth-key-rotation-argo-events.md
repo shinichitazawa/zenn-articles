@@ -10,7 +10,7 @@ published: false
 
 VPC への一方向接続用に Tailscale subnet router を bastion EC2 上で運用していると、key の expiry が運用上の負担になります。Tailscale の auth key は[1 日から 90 日まで](https://tailscale.com/docs/features/access-control/auth-keys)の範囲でしか発行できず、period を超えるとその key からの新規 device 登録は弾かれます。さらに、node key (device が tailnet に登録された後に持つ identity) も[admin が key expiry を有効化していれば](https://tailscale.com/docs/features/access-control/key-expiry) 1〜180 日で expire し、その時点で device は再認証を強制されます。手動で運用すると「console で key を再発行 → Secrets Manager 書き換え → bastion 再起動」を定期的に回す必要があり、更新を忘れると内部通信が止まります。
 
-この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお記事末尾の付録では、EventBus に採用した NATS JetStream の内部構造もかなり深掘りします(構成だけ知りたい方は本編で足ります)。
+この記事では、その手動運用を 「Tailscale webhook → EKS 上の Argo Events → Argo Workflows → cross-account の Secrets Manager / ASG instance refresh」 で自動化した構成を紹介します。Argo Events / Workflows、Kro、External Secrets Operator、ACK(AWS Controllers for Kubernetes)の組み合わせで「期限切れ 1 日前に検知して 0 操作で更新」する仕組みになります。なお記事末尾の付録では、EventBus に採用した NATS JetStream の内部構造も詳しく扱います(構成だけ知りたい方は本編で足ります)。
 
 想定読者は EKS と Argo Workflows を既に動かしていて、cross-account の secret 更新を CD パイプライン化したい方です。Tailscale を VPN として使っている前提ですが、コア部分 (webhook → Argo Events → Workflow) は他の SaaS の expiring webhook にも応用が利きます。
 
@@ -149,7 +149,7 @@ spec:
 
 HMAC 検証を EventSource ではなく Sensor の data filter に寄せています。理由は、Argo Events の generic webhook には Tailscale 形式の `t=<epoch>,v1=<hmac>` を verify する built-in がなく、自作 validator を前段に挟むほどの脅威モデルではないためです。Sensor 側で event type と deviceName を厳格に絞る方が実装コストが低いためです。
 
-EventSource と Sensor は直接つながっているわけではなく、間に `EventBus` という CR(実体は NATS JetStream stream)が介在します。この保証セマンティクスの深掘りは記事末尾の「付録: NATS JetStream を EventBus に使う意味」にまとめました(実装だけ追う場合は読み飛ばし可)。
+EventSource と Sensor は直接つながっているわけではなく、間に `EventBus` という CR(実体は NATS JetStream stream)が介在します。この保証セマンティクスの詳細は記事末尾の「付録: NATS JetStream を EventBus に使う意味」にまとめました(実装だけ追う場合は読み飛ばし可)。
 
 ## 実装: Sensor の filter とトリガ
 
@@ -543,7 +543,7 @@ WorkflowTemplate が直接 submit されれば配線は OK、Sensor 経由で su
 
 ## 付録: NATS JetStream を EventBus に使う意味
 
-**auth key rotation は、失敗すると手で回復しない限り bastion が落ちる経路です。そのため、EventSource と Sensor の間で event を運ぶ `EventBus`(実体は NATS JetStream の stream)が、event を失わずに届けられるかどうかが、この仕組みの信頼性を決めます。** この付録では、その保証を公式ドキュメントで確かめます。
+**auth key rotation は、失敗すると手で回復しない限り bastion が落ちる経路です。そのため、EventSource と Sensor の間で event を受け渡す `EventBus`(実体は NATS JetStream の stream)が、event を失わずに届けられるかどうかが、この仕組みの信頼性を決めます。** この付録では、その保証を公式ドキュメントで確かめます。
 
 ### EventBus がなぜ必要か
 
@@ -634,7 +634,7 @@ JetStream Consumer の挙動は[公式 doc](https://docs.nats.io/learn/jetstream
 
 Argo Events Sensor は durable consumer として ack-explicit でメッセージを取り、trigger 実行が成功 (今回の場合: argoWorkflow submit が成功) したら ack します。ここでの at-least-once 保証 が、auth key rotation の「webhook → Workflow submit が必ず一度は走る」要件と直接マッチします。
 
-### at-least-once の含意 — べき等性が必須
+### at-least-once とべき等性
 
 公式の delivery semantics は [base が at-least-once、exactly-once は unique message ID + double ack で実現可能](https://docs.nats.io/concepts/jetstream)と明示しています。Argo Events 標準の Sensor は exactly-once を使っていないため、同一 webhook payload を起点に Workflow が 2 回 submit される可能性があります。auth key の場合、
 

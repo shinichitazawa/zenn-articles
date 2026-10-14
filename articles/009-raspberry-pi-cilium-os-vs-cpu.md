@@ -30,7 +30,7 @@ published: false
 | nodeadm の対応 OS | EKS Hybrid Nodes | ✅ 満たせる | EKS 公式 OS 一覧 |
 | Armv8.2 + Cryptography Extension | EKS Hybrid Nodes(kube-proxy add-on v1.31 以降) | ❌ 満たせない | EKS 公式、Arm Cortex TRM |
 
-上の 3 つは OS か設定の話なので、OS を入れ替えれば満たせます。最後の 1 つは CPU の命令セットの条件で、OS を更新しても命令は増えません。ただし、この条件が効くのは EKS の kube-proxy add-on を動かすときだけです。
+上の 3 つは OS か設定の話なので、OS を入れ替えれば満たせます。最後の 1 つは CPU の命令セットの条件で、OS を更新しても命令は増えません。ただし、この条件が関係するのは EKS の kube-proxy add-on を動かすときだけです。
 
 ```mermaid
 flowchart TB
@@ -43,7 +43,7 @@ flowchart TB
   KP -->|"動かさない<br/>(Cilium の kube-proxy replacement など)"| ALL["Pi 3 / 4 / 5 すべて可"]
 ```
 
-## 前提: k3s は Cilium に対応している
+## 前提: k3s と Cilium の対応
 
 k3s は Cilium に公式に対応しています。k3s は標準で Flannel + kube-proxy を同梱しますが、それらを無効化して Cilium に差し替える構成が用意されています。
 
@@ -185,7 +185,7 @@ Raspberry Pi のメイン CPU は世代ごとに Arm アーキテクチャのバ
 
 - **Raspberry Pi 5（Cortex-A76 / Armv8.2-A）**: 命令セットの制約がありません。Ubuntu 24.04 arm64 化すれば nodeadm 対応・Cilium kernel 要件・Armv8.2-A をすべて満たします。Hybrid Node 候補として最有力です。
 - **Raspberry Pi 4（Cortex-A72 / Armv8-A）**: OS を Ubuntu 24.04 arm64 にすれば、nodeadm と Cilium の条件は満たせます。EKS Hybrid Nodes では、EKS の kube-proxy add-on の代わりに、Cilium の kube-proxy replacement か upstream の kube-proxy イメージを使います。
-- **Raspberry Pi 3（Cortex-A53 / Armv8-A）**: OS 更新で要件自体は満たせますが、CPU が非力でメモリも少ない個体が多く、Cilium + Hybrid Node 常駐は重いです。検証はできても常用は Pi 4 / 5 を推奨します。
+- **Raspberry Pi 3（Cortex-A53 / Armv8-A）**: OS 更新で要件自体は満たせますが、CPU が非力でメモリも少ない個体が多く、Cilium と Hybrid Node を常駐させると CPU とメモリに余裕がありません。検証はできても常用は Pi 4 / 5 を推奨します。
 
 ## まとめ
 

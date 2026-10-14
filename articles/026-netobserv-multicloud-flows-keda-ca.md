@@ -161,7 +161,7 @@ spec:
 
 DaemonSet 側の包括 toleration は全ノード配置のためのもので問題ありませんが、**通常の Pod に同じ toleration を付けると問題が起きます**（後述の注意点 1）。initContainer は、ブート直後に Cilium と agent の初期化が競合しないよう、Cilium の healthz 応答を待ってから agent を開始するための安全策です。
 
-## 観測結果: 同じ通信を両側のノードで観測できた
+## 観測結果: 両側のノードから見た同じ通信
 
 **rpi0 の client からクラウドの nginx への HTTP を、送信側と受信側の両方のノードの agent が観測しました。Azure と AWS で確かめ、GCP は後の節で確かめます。**
 
@@ -279,7 +279,7 @@ NetObserv と他の手段の違いは、カウンタを読むか、**ヘッダ�
 
 筆者環境では専用 UI は使わず、このように Prometheus/Grafana(または Loki + Grafana)で可視化しています。
 
-## GCP だけ Cluster Autoscaler が使えなかった
+## GCP の Cluster Autoscaler
 
 AWS と Azure が同じ形で成立した一方、GCP では Cluster Autoscaler の GCE provider が**混在 providerID クラスタで scale-up を実行できない**ことが分かりました。GCE provider は判断材料の棚卸しでクラスタの全ノードの providerID を `gce://` として解釈しようとし、他形式に出会うと「無視」ではなくエラーを返すためです。バージョンを変えて 3 回試しましたが、エラー箇所が移動するだけでした（筆者環境の実測）。
 

@@ -31,7 +31,7 @@ LiteLLM Router (重み付きランダム) + ollama on EKS Auto Mode (Graviton3) 
 |---|---|
 | ロックイン | プロンプト最適化が特定モデル (Claude 系の `<system>\n\nHuman:` 等) に依存し、乗り換えコスト増大 |
 | データ主権 | 入力データがベンダーのインフラを経由する。学習に使われないと契約しても、ネットワーク的には経由 |
-| コスト線形性 | 利用量に比例して費用増。月数億トークン規模になると本格的に効く |
+| コスト線形性 | 利用量に比例して費用増。月数億トークン規模になると差が大きくなる |
 
 これらを同時に解決するには、OSS LLM をセルフホスト + OpenAI 互換 API で抽象化するのが一般的な方法です。本検証はその具体実装を 4 モデルで並行 A/B 比較する形で組みました。
 
@@ -92,7 +92,7 @@ flowchart TB
 
 CPU 推論を成立させる鍵は次の 3 つです。
 
-1. **ハードウェア行列演算命令**の活用 — [llama.cpp 公式](https://github.com/ggml-org/llama.cpp) は AVX/AVX2/AVX-512/AMX(Intel) と ARM NEON を網羅しています。本記事の Graviton3 は Arm なので効くのは NEON / SVE です（AMX は Intel 専用で Graviton には存在しません）
+1. **ハードウェア行列演算命令**の活用 — [llama.cpp 公式](https://github.com/ggml-org/llama.cpp) は AVX/AVX2/AVX-512/AMX(Intel) と ARM NEON を網羅しています。本記事の Graviton3 は Arm なので使われるのは NEON / SVE です（AMX は Intel 専用で Graviton には存在しません）
 2. **GGUF(llama.cpp 系の量子化モデル形式)の Q4_K_M 量子化** — 精度劣化が 1% 未満で VRAM/RAM を 1/4 に圧縮できます
 3. **MoE モデル** — GPT-OSS-20B は 21B total / active 3.6B のため、CPU でも実用速度が出ます
 
@@ -389,7 +389,7 @@ async def write_back_scores(params):
     ...
 ```
 
-Workflow は 4 activity を順次実行し、各 activity に Temporal retry policy を効かせます。judge 呼び出しは semaphore で 5 並列に抑え、judge model 側の rate limit を超えないようにします。
+Workflow は 4 activity を順次実行し、各 activity に Temporal retry policy を設定します。judge 呼び出しは semaphore で 5 並列に抑え、judge model 側の rate limit を超えないようにします。
 
 ### Trigger 方法 (3 通り)
 

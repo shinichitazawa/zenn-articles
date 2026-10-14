@@ -42,7 +42,7 @@ flowchart TB
 
 Memory と Tool はプロバイダに依存しないため、プロバイダを変えて影響を受けるのは Chat Model サブノードとその資格情報だけです。ここまでは想定どおりでした。問題はその 1 ノードの中身です。
 
-## 違い 1: 認証 — 静的キーを消せるのは Bedrock だけ
+## 違い 1: 認証と静的キー
 
 認証方式の違いは、筆者の構成では設計への影響が最も大きかった項目です。
 
@@ -85,7 +85,7 @@ const email = (credentials.email as string).trim();
 
 Google Cloud 自体には静的鍵を排除する仕組みがあります。[Workload Identity Federation](https://docs.cloud.google.com/iam/docs/workload-identity-federation) は、オンプレやマルチクラウドのワークロードがサービスアカウントキーの代わりにフェデレーション ID で Google Cloud リソースへアクセスするための機能で、公式は「サービスアカウントキーは強力な資格情報であり、適切に管理されないとセキュリティリスクになり得る」と述べ、その「維持管理とセキュリティの負担を排除できる」と説明しています。
 
-しかし n8n のサービスアカウント資格情報にはその接続口がありません(2026-08 時点、上記公式ドキュメントに記載なし)。結果として、Bedrock では消せた静的な秘密情報が Vertex AI では残ります。ここが移植時に効いてくる差です。
+しかし n8n のサービスアカウント資格情報にはその接続口がありません(2026-08 時点、上記公式ドキュメントに記載なし)。結果として、Bedrock では消せた静的な秘密情報が Vertex AI では残ります。移植するときは、この差に対応する必要があります。
 
 ### Azure OpenAI
 
@@ -131,7 +131,7 @@ Bedrock ノードには Model Source という選択肢があり、オンデマ�
 ![AWS Bedrock Chat Model の設定画面。Model に推論プロファイル ID jp.anthropic.claude-haiku-4-5-20251001-v1:0 が入り、Options に Maximum Number of Tokens と Sampling Temperature がある](/images/023-bedrock-params.png)
 *Model に入っているのは素のモデル名ではなく、リージョン接頭辞付きの推論プロファイル ID(`jp.` は日本国内)。資格情報を選ぶとドロップダウンから選択できるが、この撮影用インスタンスには資格情報がないため式として直接指定している*
 
-つまり Bedrock では、モデル名を書くだけでは足りず「どの推論プロファイルを使うか」という判断が入ります。なお [推論プロファイルの利用方法](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-use.html)によると、クロスリージョン(システム定義)の推論プロファイルであれば ARN と ID のどちらでも指定できます。この「どちらでも指定できる」点が、後述するリージョン解決の挙動に効いてきます。
+つまり Bedrock では、モデル名を書くだけでは足りず「どの推論プロファイルを使うか」という判断が入ります。なお [推論プロファイルの利用方法](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-use.html)によると、クロスリージョン(システム定義)の推論プロファイルであれば ARN と ID のどちらでも指定できます。この「どちらでも指定できる」点が、後述するリージョン解決の挙動に影響します。
 
 ### Vertex AI — プロジェクト ID + モデル名 + リージョン
 
@@ -167,7 +167,7 @@ n8n 側もこれに追従しており、資格情報のドキュメントには�
 
 3 つの設定画面を並べると、同じ「Chat Model」でも入力を求められるものが異なることが分かります。Bedrock は認証方式とモデルの出自、Vertex はプロジェクトとリージョン、Azure はデプロイ名です。
 
-型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に効いてきます(筆者環境 n8n 2.33.3 での実測)。
+型定義から各パネルの項目を書き出すと違いがさらに明確になります(いずれも n8n 2.33.3 のノード定義より。`options` 配下の詳細設定は省略)。なお上の Bedrock の画面で Model 欄が空欄なのは、資格情報が未設定だとモデル一覧を取得できないためで、Authentication と Model Source も資格情報を選んだ後に有効になります(筆者環境 n8n 2.33.3 での実測)。
 
 | 項目 | AWS Bedrock Chat Model | Google Vertex Chat Model | Azure OpenAI Chat Model |
 |---|---|---|---|

@@ -140,7 +140,7 @@ flowchart TB
 
 適用後、正常系(UI 経路・DB・Slack・whisper)と**負例 2 経路(bridge → whisper、whisper → n8n)が遮断されること**を実測で確認しました。
 
-## Tailscale proxy は Pod ラベルで識別できない
+## Tailscale proxy の識別
 
 適用直後、**UI 経路だけが 502** になりました。Hubble(Cilium 付属のフロー可視化ツール。ポリシーで落とされた通信を drop として表示する)でドロップを観測すると:
 

@@ -101,7 +101,7 @@ LineItemGroups: (空)
 
 公式ページには「Amazon Textract also identifies vendor names that are critical for your workflows but may not be explicitly labeled.」ともあり、ロゴ内の店名も拾う想定です([同ページ](https://docs.aws.amazon.com/textract/latest/dg/invoices-receipts.html))。それが日本語では機能しなかった、という結果になります。明細行(`LineItemGroups`)も空でした。
 
-### Nova Lite: 存在しない社名を出力した
+### Nova Lite の社名の誤り
 
 Nova Lite はマルチモーダルモデルです。[Amazon Nova のモデル仕様](https://docs.aws.amazon.com/nova/latest/userguide/what-is-nova.html)によると、入力モダリティは次のとおりです。
 
@@ -174,7 +174,7 @@ aws bedrock list-foundation-models --region ap-northeast-1 \
 [{ "id": "anthropic.claude-haiku-4-5-20251001-v1:0", "in": ["TEXT", "IMAGE"] }]
 ```
 
-## 帳票種別の判定まで一度に行えたのは LLM だけだった
+## 帳票種別の判定まで一度に行えるか
 
 Textract の `AnalyzeExpense` は「これは領収書である」という前提で項目を抜く API であり、**種別を判定する機能はありません**。領収書・請求書・見積書・納品書が混在して届く運用では、種別ごとに API や後処理を分ける設計が必要になります。
 
@@ -255,7 +255,7 @@ aws bedrock get-foundation-model-availability --region ap-northeast-1 \
 }
 ```
 
-IAM もリージョンも問題ないのに呼べない場合、`agreementAvailability` を見ると切り分けが早いです。
+IAM もリージョンも問題ないのに呼べない場合、`agreementAvailability` を見ると早く切り分けられます。
 
 ## 精度に頼り切らない設計
 
